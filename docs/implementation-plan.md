@@ -1,4 +1,4 @@
-# todorepl implementation plan
+# todomcp implementation plan
 
 ## Executive Summary
 
@@ -8,14 +8,14 @@
 - Re-run `grill-with-docs` before adding sync, recurrence, category schedules, or calendar concepts.
 
 This plan was produced after defining and reading the project-local `grill-with-docs` skill, then
-checking the current todorepl scaffold, Herakles' Bun/TypeScript/Stricli conventions, and
+checking the current todomcp scaffold, Herakles' Bun/TypeScript/Stricli conventions, and
 PlanStack's source-backed todo model.
 
 ## Settled Product Decisions
 
-- todorepl has two equal entry modes:
-  - `todorepl` opens an interactive REPL shell.
-  - `todorepl <command>` runs a single command for scripts and agents.
+- todomcp has two equal entry modes:
+  - `todomcp` opens an interactive REPL shell.
+  - `todomcp <command>` runs a single command for scripts and agents.
 - Command mode and REPL mode must call the same application services. The REPL is a shell over the
   command model, not a second implementation.
 - The product is local-first. The first durable store is a local file; sync is out of scope until a
@@ -79,7 +79,7 @@ The shell should support help, history-friendly output, and graceful exit.
 
 Acceptance shape:
 
-- `todorepl` opens the shell.
+- `todomcp` opens the shell.
 - REPL commands cover the same MVP commands as command mode.
 - Errors do not crash the shell.
 - The shell can print command help without leaving the session.
@@ -105,7 +105,7 @@ Acceptance shape:
 
 - `bun run check` remains the real local gate.
 - GitHub Actions run install, tests, Biome, TypeScript, and Fallow.
-- The package binary is executable as `todorepl`.
+- The package binary is executable as `todomcp`.
 - README and docs cover install, usage, data location, and command reference.
 
 ## Implementation-Time Checks

@@ -9,7 +9,7 @@ export const commonFlags = {
     kind: "parsed",
     parse: String,
     optional: true,
-    brief: "Path to the todorepl data file.",
+    brief: "Path to the todomcp data file.",
     placeholder: "path",
   },
   json: {

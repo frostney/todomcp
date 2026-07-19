@@ -1,4 +1,4 @@
-# todorepl
+# todomcp
 
 A local-first command-line todo app with REPL and subcommand modes for human and agent workflows.
 See [docs](docs/README.md) for architecture, setup, and project guidance.
@@ -11,12 +11,12 @@ Clone the repository and install dependencies with Bun:
 bun install
 ```
 
-After package publication, the package binary is `todorepl`. For local package-install validation,
+After package publication, the package binary is `todomcp`. For local package-install validation,
 install this checkout from another Bun project:
 
 ```sh
-bun install /path/to/todorepl
-./node_modules/.bin/todorepl --help
+bun install /path/to/todomcp
+./node_modules/.bin/todomcp --help
 ```
 
 ## Usage
@@ -24,55 +24,61 @@ bun install /path/to/todorepl
 Start the interactive shell:
 
 ```sh
-bun run todorepl
+bun run todomcp
 ```
 
 Run one command:
 
 ```sh
-bun run todorepl -- list
-bun run todorepl -- add "Draft launch notes"
+bun run todomcp -- list
+bun run todomcp -- add "Draft launch notes"
 ```
 
 The package binary accepts the same commands:
 
 ```sh
-todorepl --help
-todorepl list
-todorepl add "Draft launch notes"
+todomcp --help
+todomcp list
+todomcp add "Draft launch notes"
 ```
 
 ## Data Location
 
-todorepl is local-first. The CLI resolves its default data file to the platform data directory:
+todomcp is local-first. The CLI resolves its default data file to the platform data directory:
 
-- macOS: `~/Library/Application Support/todorepl/todos.db`
-- Linux and other XDG platforms: `$XDG_DATA_HOME/todorepl/todos.db`, or
-  `~/.local/share/todorepl/todos.db` when `XDG_DATA_HOME` is unset
-- Windows: `%LOCALAPPDATA%\todorepl\todos.db`, or
-  `~/AppData/Local/todorepl/todos.db` when `LOCALAPPDATA` is unset
+- macOS: `~/Library/Application Support/todomcp/todos.db`
+- Linux and other XDG platforms: `$XDG_DATA_HOME/todomcp/todos.db`, or
+  `~/.local/share/todomcp/todos.db` when `XDG_DATA_HOME` is unset
+- Windows: `%LOCALAPPDATA%\todomcp\todos.db`, or
+  `~/AppData/Local/todomcp/todos.db` when `LOCALAPPDATA` is unset
 
 Todos, categories, and kinds are stored in a local SQLite database with a versioned schema and transactional
 writes. Use `--data path` on supported commands to point at a different database file.
+
+The project was previously named `todorepl`. The first time a command opens the default database,
+an existing database in the legacy `todorepl` data directory is moved into the `todomcp` directory
+automatically (including SQLite `-journal`/`-wal`/`-shm` sidecar files); explicit `--data` paths
+are never migrated. If databases exist in both directories, commands fail with an error naming
+both paths so you can decide which one to keep.
 
 ## Command Reference
 
 Print root help:
 
 ```sh
-todorepl --help
+todomcp --help
 ```
 
 Add a todo:
 
 ```sh
-todorepl add <name> [--date YYYY-MM-DD] [--category name] [--kind name] [--emoji char] [--data path] [--json]
+todomcp add <name> [--date YYYY-MM-DD] [--category name] [--kind name] [--emoji char] [--data path] [--json]
 ```
 
 List todos:
 
 ```sh
-todorepl list [--date YYYY-MM-DD] [--status open|done] [--caused-by id] [--category name] [--data path] [--json]
+todomcp list [--date YYYY-MM-DD] [--status open|done] [--caused-by id] [--category name] [--data path] [--json]
 ```
 
 The full command set (`show`, `done`, `edit`, `move`, `delete`, `follow-up`, `workstream`, `rollover`, the
@@ -82,14 +88,14 @@ The full command set (`show`, `done`, `edit`, `move`, `delete`, `follow-up`, `wo
 ## Agent workflows
 
 Every data-returning command accepts `--json`, and commands signal outcomes through exit codes, so
-todorepl drops into scripts and agents without screen-scraping. The JSON shapes and the full exit-code
+todomcp drops into scripts and agents without screen-scraping. The JSON shapes and the full exit-code
 table live in [docs/architecture.md](docs/architecture.md).
 
 Create a todo and read its JSON. Each single-record command (`add`, `show`, `done`, `edit`, `move`,
 `delete`, `follow-up`) prints one Todo object. `workstream --json` prints `{ root, duration, todos }`:
 
 ```sh
-todorepl add "Draft launch notes" --date 2026-06-24 --json
+todomcp add "Draft launch notes" --date 2026-06-24 --json
 ```
 
 ```json
@@ -107,7 +113,7 @@ todorepl add "Draft launch notes" --date 2026-06-24 --json
 List todos as a JSON array:
 
 ```sh
-todorepl list --status open --json
+todomcp list --status open --json
 ```
 
 Back up the full data set to a file and restore it. `export` writes a deterministic
@@ -115,21 +121,21 @@ Back up the full data set to a file and restore it. `export` writes a determinis
 stdin), validating the whole payload before it touches existing data:
 
 ```sh
-todorepl export > backup.json
-todorepl import --file backup.json
+todomcp export > backup.json
+todomcp import --file backup.json
 ```
 
 Pipe an export straight into another database file via stdin:
 
 ```sh
-todorepl export | todorepl import --data ./mirror.todos.db
+todomcp export | todomcp import --data ./mirror.todos.db
 ```
 
 Branch on the exit code. A validation error (such as a malformed date) exits with code `2`, while a
 successful command exits `0`:
 
 ```sh
-if todorepl add "Bad date" --date not-a-date --json; then
+if todomcp add "Bad date" --date not-a-date --json; then
   echo "added"
 else
   status=$?

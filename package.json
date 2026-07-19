@@ -1,13 +1,13 @@
 {
-  "name": "todorepl",
+  "name": "todomcp",
   "version": "0.1.0",
-  "description": "A command-line todo app with REPL and subcommand modes for agentic workflows.",
+  "description": "A local-first todo substrate for agent harnesses, with an MCP-first roadmap and CLI/REPL modes.",
   "type": "module",
   "bin": {
-    "todorepl": "./src/cli/main.ts"
+    "todomcp": "./src/cli/main.ts"
   },
   "scripts": {
-    "todorepl": "bun run src/cli/main.ts",
+    "todomcp": "bun run src/cli/main.ts",
     "test": "bun test",
     "format": "biome format --write .",
     "lint": "biome check .",
@@ -20,10 +20,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/frostney/todorepl.git"
+    "url": "git+https://github.com/frostney/todomcp.git"
   },
   "keywords": [
     "todo",
+    "mcp",
     "cli",
     "repl",
     "agent",
@@ -32,9 +33,9 @@
   "author": "Johannes Stein",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/frostney/todorepl/issues"
+    "url": "https://github.com/frostney/todomcp/issues"
   },
-  "homepage": "https://github.com/frostney/todorepl#readme",
+  "homepage": "https://github.com/frostney/todomcp#readme",
   "packageManager": "bun@1.3.14",
   "dependencies": {
     "@stricli/core": "^1.2.8"

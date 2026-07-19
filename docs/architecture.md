@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-- todorepl is a Bun-first TypeScript CLI with no UI layer.
+- todomcp is a Bun-first TypeScript CLI with no UI layer.
 - Stricli owns command routing and generated help.
 - REPL mode and command mode share the same domain and application behavior.
 - Todos are date-centric and follow the PlanStack-inspired data shape.
@@ -10,10 +10,10 @@
 
 ## Product Shape
 
-todorepl is a local-first command-line todo app for humans and agents. It has two entry modes:
+todomcp is a local-first command-line todo app for humans and agents. It has two entry modes:
 
-- `todorepl` starts an interactive shell that reads commands from a `todo>` prompt.
-- `todorepl <command>` runs a single automation-friendly command.
+- `todomcp` starts an interactive shell that reads commands from a `todo>` prompt.
+- `todomcp <command>` runs a single automation-friendly command.
 
 The interactive shell is a thin layer: it tokenizes each input line (honoring quotes so values with
 spaces stay intact) and dispatches the tokens through the SAME Stricli app and `src/app/` application
@@ -59,6 +59,12 @@ policy can make that date required, optional, or forbidden.
 - Writes that touch many rows (for example, import and forced category deletion) run inside an ACID
   transaction, so an interrupted write never leaves a half-applied state behind.
 - A missing database bootstraps cleanly: the file and schema are created on first open.
+- Opening the default path migrates pre-rename data: a database in the legacy `todorepl` data
+  directory is moved into the `todomcp` directory (with any SQLite `-journal`/`-wal`/`-shm`
+  sidecars) before open. Sidecars move first and the database file last, so an interrupted
+  migration resumes safely on the next open. Explicit `--data` paths never migrate; databases in
+  both directories fail with an actionable `LegacyDataConflictError`, and filesystem failures
+  during migration surface as `LegacyMigrationError` (both storage exit code `4`).
 - Corrupt or unreadable files fail with an actionable error that points the user at the file to
   inspect or remove.
 - The repository exposes a query-shaped contract (`listTodos(filter)`, `getTodo` / `putTodo`,

@@ -37,7 +37,7 @@ afterEach(async () => {
 });
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "todorepl-sqlite-"));
+  const dir = await mkdtemp(join(tmpdir(), "todomcp-sqlite-"));
   tempDirs.push(dir);
   return dir;
 }

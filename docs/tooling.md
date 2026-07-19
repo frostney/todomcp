@@ -18,7 +18,7 @@ bun install
 Run the CLI:
 
 ```sh
-bun run todorepl -- --help
+bun run todomcp -- --help
 ```
 
 Run tests:
@@ -36,8 +36,8 @@ bun run check
 Validate the package binary from another Bun project:
 
 ```sh
-bun install /path/to/todorepl
-./node_modules/.bin/todorepl --help
+bun install /path/to/todomcp
+./node_modules/.bin/todomcp --help
 ```
 
 ## Tool Choices
