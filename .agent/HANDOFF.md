@@ -2,9 +2,11 @@
 
 ## Current task
 
-Scope/vision re-grill completed 2026-07-19 on branch `claude/todo-db-scope-vision-28cb62`. VISION.md
-rewritten, ADR 0001 added, AGENTS.md hard constraints updated. Check gate passes. Committed and
-pushed; PR #13 is open as a draft and build-out issues #14–#20 exist.
+Issue #14 (rename to todomcp + legacy data migration) implemented on branch
+`issue-14-rename-todomcp`; PR #21 open as a draft. The GitHub repository is already renamed to
+`frostney/todomcp`. Earlier this session: vision re-grill landed via PR #13, and build-out
+issues #14–#20 were created. Next after #21 merges: issue #15 (MCP transport), which unlocks
+issues #17, #18, and #20.
 
 ## Decisions made (see docs/adr/0001-mcp-primary-push-architecture.md and VISION.md)
 
