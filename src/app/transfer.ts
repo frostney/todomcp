@@ -85,7 +85,12 @@ function parseTodo(raw: unknown): Todo {
     createdAt: requireString(raw, "createdAt"),
     updatedAt: requireString(raw, "updatedAt"),
   };
+  applyOptionalTodoFields(todo, raw);
+  applyFollowUpAndRollover(todo, raw);
+  return todo;
+}
 
+function applyOptionalTodoFields(todo: Todo, raw: Record<string, unknown>): void {
   if (raw.scheduledTime !== undefined) {
     todo.scheduledTime = parseMinuteOfDay(requireNumber(raw, "scheduledTime"));
   }
@@ -100,10 +105,21 @@ function parseTodo(raw: unknown): Todo {
   if (completedAt !== undefined) todo.completedAt = completedAt;
   const deletedAt = optionalString(raw, "deletedAt");
   if (deletedAt !== undefined) todo.deletedAt = deletedAt;
+}
+
+function applyFollowUpAndRollover(todo: Todo, raw: Record<string, unknown>): void {
+  applyFollowUp(todo, raw);
+  applyRolloverMetadata(todo, raw);
+}
+
+function applyFollowUp(todo: Todo, raw: Record<string, unknown>): void {
   if (raw.followUp === true) todo.followUp = true;
   else if (raw.followUp !== undefined && raw.followUp !== false) {
     throw new Error("followUp must be a boolean");
   }
+}
+
+function applyRolloverMetadata(todo: Todo, raw: Record<string, unknown>): void {
   if (raw.rolloverCount !== undefined) {
     const count = requireNumber(raw, "rolloverCount");
     if (!Number.isInteger(count) || count < 0) {
@@ -115,8 +131,6 @@ function parseTodo(raw: unknown): Todo {
     const history = parseRolloverHistory(raw.rolloverHistory);
     if (history.length > 0) todo.rolloverHistory = history;
   }
-
-  return todo;
 }
 
 function parseRolloverHistory(value: unknown): RolloverEntry[] {

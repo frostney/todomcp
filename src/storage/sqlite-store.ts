@@ -105,17 +105,25 @@ function mapTodoRow(row: TodoRow): Todo {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  applyOptionalRowFields(todo, row);
+  applyStoredFollowUpAndRollover(todo, row);
+  return todo;
+}
+
+function applyOptionalRowFields(todo: Todo, row: TodoRow): void {
   if (row.category_id !== null) todo.categoryId = row.category_id;
   if (row.emoji !== null) todo.emoji = row.emoji;
   if (row.scheduled_time !== null) todo.scheduledTime = row.scheduled_time;
   if (row.duration !== null) todo.duration = row.duration as NonNullable<Todo["duration"]>;
   if (row.completed_at !== null) todo.completedAt = row.completed_at;
   if (row.deleted_at !== null) todo.deletedAt = row.deleted_at;
+}
+
+function applyStoredFollowUpAndRollover(todo: Todo, row: TodoRow): void {
   if (row.follow_up === 1) todo.followUp = true;
   if (row.rollover_count > 0) todo.rolloverCount = row.rollover_count;
   const history = parseStoredHistory(row.rollover_history);
   if (history !== undefined) todo.rolloverHistory = history;
-  return todo;
 }
 
 function mapCategoryRow(row: CategoryRow): Category {
@@ -130,6 +138,16 @@ function mapCategoryRow(row: CategoryRow): Category {
   return category;
 }
 
+function nullable<T>(value: T | undefined): T | null {
+  return value === undefined ? null : value;
+}
+
+function storedRolloverHistory(todo: Todo): string | null {
+  return todo.rolloverHistory !== undefined && todo.rolloverHistory.length > 0
+    ? JSON.stringify(todo.rolloverHistory)
+    : null;
+}
+
 function todoParams(todo: Todo): Array<string | number | null> {
   return [
     todo.id,
@@ -137,17 +155,15 @@ function todoParams(todo: Todo): Array<string | number | null> {
     todo.date,
     todo.status,
     todo.order,
-    todo.categoryId ?? null,
-    todo.emoji ?? null,
-    todo.scheduledTime ?? null,
-    todo.duration ?? null,
-    todo.completedAt ?? null,
-    todo.deletedAt ?? null,
+    nullable(todo.categoryId),
+    nullable(todo.emoji),
+    nullable(todo.scheduledTime),
+    nullable(todo.duration),
+    nullable(todo.completedAt),
+    nullable(todo.deletedAt),
     todo.followUp === true ? 1 : 0,
     todo.rolloverCount ?? 0,
-    todo.rolloverHistory !== undefined && todo.rolloverHistory.length > 0
-      ? JSON.stringify(todo.rolloverHistory)
-      : null,
+    storedRolloverHistory(todo),
     todo.createdAt,
     todo.updatedAt,
   ];
