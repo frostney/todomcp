@@ -66,16 +66,16 @@ todorepl --help
 Add a todo:
 
 ```sh
-todorepl add <name> [--date YYYY-MM-DD] [--category name] [--emoji char] [--follow-up] [--data path] [--json]
+todorepl add <name> [--date YYYY-MM-DD] [--category name] [--emoji char] [--data path] [--json]
 ```
 
 List todos:
 
 ```sh
-todorepl list [--date YYYY-MM-DD] [--status open|done] [--follow-up] [--category name] [--data path] [--json]
+todorepl list [--date YYYY-MM-DD] [--status open|done] [--caused-by id] [--category name] [--data path] [--json]
 ```
 
-The full command set (`show`, `done`, `edit`, `move`, `delete`, `follow-up`, `rollover`, the
+The full command set (`show`, `done`, `edit`, `move`, `delete`, `follow-up`, `workstream`, `rollover`, the
 `category` subcommands, and `export` / `import`) and every flag are documented in
 [docs/quick-start.md](docs/quick-start.md).
 
@@ -86,7 +86,7 @@ todorepl drops into scripts and agents without screen-scraping. The JSON shapes 
 table live in [docs/architecture.md](docs/architecture.md).
 
 Create a todo and read its JSON. Each single-record command (`add`, `show`, `done`, `edit`, `move`,
-`delete`, `follow-up`) prints one Todo object:
+`delete`, `follow-up`) prints one Todo object. `workstream --json` prints `{ root, duration, todos }`:
 
 ```sh
 todorepl add "Draft launch notes" --date 2026-06-24 --json

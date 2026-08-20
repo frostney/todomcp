@@ -52,8 +52,8 @@ date and may also have a scheduled minute-of-day, duration, category, and emoji.
   and `category_id` so date, status, and category filters run as indexed SQL rather than scanning
   every row in memory.
 - The schema is versioned through SQLite's `PRAGMA user_version`. Opening a newer or unsupported
-  version fails with an actionable error; older local databases migrate forward (schema `1` adds
-  follow-up and rollover columns and becomes schema `2`).
+  version fails with an actionable error; older local databases migrate forward (schema `1`→`2`
+  added rollover columns; schema `2`→`3` adds `caused_by` and stops using the follow-up mark).
 - Writes that touch many rows (for example, import and forced category deletion) run inside an ACID
   transaction, so an interrupted write never leaves a half-applied state behind.
 - A missing database bootstraps cleanly: the file and schema are created on first open.
@@ -79,7 +79,7 @@ date and may also have a scheduled minute-of-day, duration, category, and emoji.
 Every command that returns data supports `--json`. Human output can be pleasant, but machine-readable
 output is part of the product surface, not a debug option. With `--json`, single-record commands
 (`add`, `show`, `done`, `edit`, `move`, `delete`, `follow-up`) print one Todo object; `list` prints a Todo array;
-`rollover` prints `{ date, count, todos }` and accepts optional todo ids to roll only those items;
+`workstream` prints `{ root, duration, todos }`; `rollover` prints `{ date, count, todos }` and accepts optional todo ids to roll only those items;
 the `category` subcommands print a Category object (or, for `category list`, a Category array);
 `export` prints the snapshot object; and `import --json` prints an import summary.
 
@@ -90,7 +90,7 @@ A Todo object always carries these fields:
 - `id` (string): stable unique id.
 - `name` (string): todo text.
 - `date` (string): `YYYY-MM-DD` the todo belongs to.
-- `status` (string): `"open"` or `"done"`. Follow-up is a separate mark, not a status.
+- `status` (string): `"open"` or `"done"`.
 - `order` (number): position within its date.
 - `createdAt`, `updatedAt` (string): ISO-8601 timestamps.
 
@@ -102,7 +102,7 @@ Optional fields are present only when set:
 - `duration` (number): one of `15`, `30`, `60`.
 - `completedAt` (string): ISO-8601 timestamp set when the todo is completed.
 - `deletedAt` (string): ISO-8601 timestamp set when the todo is soft-deleted.
-- `followUp` (boolean): `true` when the todo is marked as a follow-up. Follow-ups stay `"open"` and can roll over.
+- `causedBy` (string): id of the parent todo that caused this one.
 - `rolloverCount` (number): how many times daily rollover has moved this todo.
 - `rolloverHistory` (array): `{ fromDate, toDate, rolledOverAt }` entries, oldest first.
 
@@ -114,7 +114,7 @@ and `emoji` when set.
 ### Export and import
 
 `export` writes all active (non-soft-deleted) todos and categories as a JSON snapshot to stdout. The snapshot is
-`{ version, todos, categories }`, where `version` is the current schema version (`2`), `todos` is a
+`{ version, todos, categories }`, where `version` is the current schema version (`3`), `todos` is a
 Todo array, and `categories` is a Category array. Output is deterministic: todos are ordered by
 `date`, then `order`, then `id`, and categories by `name`, then `id`.
 

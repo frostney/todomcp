@@ -239,31 +239,37 @@ describe("end-to-end lifecycle", () => {
   });
 });
 
-describe("follow-up", () => {
-  test("marks, lists, shows, and clears a follow-up", async () => {
-    const created = await addTodo("Call them back");
+describe("follow-up and workstream", () => {
+  test("follow-up creates a child; list --caused-by finds it; workstream --json; done does not spawn", async () => {
+    const parent = await addTodo("Parent work");
 
-    const marked = await runCli(["follow-up", created.id, "--json"]);
-    expect(marked.exitCode).toBe(0);
-    expect(parseTodo(marked.stdout).followUp).toBe(true);
-    expect(parseTodo(marked.stdout).status).toBe("open");
+    const created = await runCli(["follow-up", parent.id, "Child work", "--json"]);
+    expect(created.exitCode).toBe(0);
+    const child = parseTodo(created.stdout);
+    expect(child.name).toBe("Child work");
+    expect(child.status).toBe("open");
+    expect(child.date).toBe(TODAY);
+    expect(child.causedBy).toBe(parent.id);
 
-    const listed = await runCli(["list", "--follow-up", "--json"]);
+    const listed = await runCli(["list", "--caused-by", parent.id, "--json"]);
     expect(listed.exitCode).toBe(0);
-    expect(parseTodos(listed.stdout).map((todo) => todo.id)).toEqual([created.id]);
+    expect(parseTodos(listed.stdout).map((todo) => todo.id)).toEqual([child.id]);
 
-    const shown = await runCli(["show", created.id, "--json"]);
-    expect(parseTodo(shown.stdout).followUp).toBe(true);
+    const stream = await runCli(["workstream", child.id, "--json"]);
+    expect(stream.exitCode).toBe(0);
+    const payload = JSON.parse(stream.stdout) as {
+      root: string;
+      duration: number;
+      todos: Todo[];
+    };
+    expect(payload.root).toBe(parent.id);
+    expect(payload.duration).toBe(0);
+    expect(payload.todos.map((todo) => todo.id)).toEqual([parent.id, child.id]);
 
-    const cleared = await runCli(["follow-up", created.id, "--clear", "--json"]);
-    expect(cleared.exitCode).toBe(0);
-    expect(parseTodo(cleared.stdout).followUp).toBeUndefined();
-  });
-
-  test("add --follow-up creates a marked todo", async () => {
-    const result = await runCli(["add", "Follow this", "--date", TODAY, "--follow-up", "--json"]);
-    expect(result.exitCode).toBe(0);
-    expect(parseTodo(result.stdout).followUp).toBe(true);
+    expect((await runCli(["done", parent.id, "--json"])).exitCode).toBe(0);
+    const afterDone = await runCli(["list", "--caused-by", parent.id, "--json"]);
+    expect(afterDone.exitCode).toBe(0);
+    expect(parseTodos(afterDone.stdout).map((todo) => todo.id)).toEqual([child.id]);
   });
 });
 
@@ -272,14 +278,7 @@ describe("rollover", () => {
     const pastResult = await runCli(["add", "Old open", "--date", "2026-06-20", "--json"]);
     expect(pastResult.exitCode).toBe(0);
     const past = parseTodo(pastResult.stdout);
-    const flaggedResult = await runCli([
-      "add",
-      "Old follow-up",
-      "--date",
-      "2026-06-21",
-      "--follow-up",
-      "--json",
-    ]);
+    const flaggedResult = await runCli(["add", "Old leftover", "--date", "2026-06-21", "--json"]);
     expect(flaggedResult.exitCode).toBe(0);
     const flagged = parseTodo(flaggedResult.stdout);
     const finishedResult = await runCli(["add", "Old done", "--date", "2026-06-20", "--json"]);
@@ -300,7 +299,6 @@ describe("rollover", () => {
     expect(payload.todos.map((todo) => todo.id).sort()).toEqual([flagged.id, past.id].sort());
     expect(payload.todos.every((todo) => todo.date === TODAY)).toBe(true);
     expect(payload.todos.every((todo) => todo.rolloverCount === 1)).toBe(true);
-    expect(payload.todos.find((todo) => todo.id === flagged.id)?.followUp).toBe(true);
     expect(payload.todos[0]?.rolloverHistory?.[0]).toMatchObject({
       toDate: TODAY,
       rolledOverAt: expect.any(String),

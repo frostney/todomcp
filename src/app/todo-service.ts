@@ -1,4 +1,4 @@
-import type { RolloverEntry, Todo } from "../domain/model";
+import type { RolloverEntry, Todo, TodoId } from "../domain/model";
 import { parseClockTime, parseDateString, parseTodoDuration } from "../domain/validation";
 import type { TodoFilter, TodoRepository } from "../storage/repository";
 import { type Clock, systemClock } from "./clock";
@@ -12,7 +12,6 @@ export type AddTodoInput = {
   duration?: string;
   categoryId?: string;
   emoji?: string;
-  followUp?: boolean;
 };
 
 export type EditTodoInput = {
@@ -33,15 +32,22 @@ export type RolloverResult = {
   todos: Todo[];
 };
 
+export type WorkstreamResult = {
+  root: TodoId;
+  duration: number;
+  todos: Todo[];
+};
+
 export interface TodoService {
   add(input: AddTodoInput): Promise<Todo>;
+  addFollowUp(parentIdOrPrefix: string, name: string): Promise<Todo>;
   list(filter?: TodoFilter): Promise<Todo[]>;
   get(idOrPrefix: string): Promise<Todo>;
   complete(idOrPrefix: string): Promise<Todo>;
   edit(idOrPrefix: string, changes: EditTodoInput): Promise<Todo>;
   move(idOrPrefix: string, move: MoveTodoInput): Promise<Todo>;
   remove(idOrPrefix: string): Promise<Todo>;
-  setFollowUp(idOrPrefix: string, followUp: boolean): Promise<Todo>;
+  workstream(idOrPrefix: string): Promise<WorkstreamResult>;
   rollover(ids?: readonly string[]): Promise<RolloverResult>;
 }
 
@@ -70,9 +76,56 @@ function localDateOf(iso: string): string {
   return `${year}-${month}-${day}`;
 }
 
-function withFollowUp(todo: Todo, followUp: boolean): Todo {
-  const { followUp: _ignored, ...rest } = todo;
-  return followUp ? { ...rest, followUp: true } : rest;
+function todoById(todos: readonly Todo[]): Map<string, Todo> {
+  return new Map(todos.map((todo) => [todo.id, todo]));
+}
+
+function findWorkstreamRoot(start: Todo, byId: ReadonlyMap<string, Todo>): Todo {
+  const seen = new Set<string>();
+  let current = start;
+  while (current.causedBy !== undefined && !seen.has(current.id)) {
+    seen.add(current.id);
+    const parent = byId.get(current.causedBy);
+    if (parent === undefined) break;
+    current = parent;
+  }
+  return current;
+}
+
+function groupChildrenByParent(todos: readonly Todo[]): Map<string, string[]> {
+  const childrenOf = new Map<string, string[]>();
+  for (const todo of todos) {
+    if (todo.causedBy === undefined) continue;
+    const children = childrenOf.get(todo.causedBy);
+    if (children === undefined) childrenOf.set(todo.causedBy, [todo.id]);
+    else children.push(todo.id);
+  }
+  return childrenOf;
+}
+
+function collectDescendantIds(
+  rootId: string,
+  childrenOf: ReadonlyMap<string, readonly string[]>,
+): Set<string> {
+  const memberIds = new Set<string>();
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined || memberIds.has(id)) continue;
+    memberIds.add(id);
+    const children = childrenOf.get(id);
+    if (children !== undefined) queue.push(...children);
+  }
+  return memberIds;
+}
+
+function workstreamMembers(rootId: string, all: readonly Todo[]): Todo[] {
+  const memberIds = collectDescendantIds(rootId, groupChildrenByParent(all));
+  return all.filter((todo) => memberIds.has(todo.id));
+}
+
+function sumDuration(todos: readonly Todo[]): number {
+  return todos.reduce((total, todo) => total + (todo.duration ?? 0), 0);
 }
 
 async function resolveRolloverCandidates(
@@ -146,7 +199,24 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
         updatedAt: timestamp,
       };
       applyOptionalFields(todo, input);
-      if (input.followUp === true) todo.followUp = true;
+      return persist(todo);
+    },
+
+    async addFollowUp(parentIdOrPrefix, name) {
+      const parent = await resolve(parentIdOrPrefix);
+      const timestamp = clock();
+      const date = localDateOf(timestamp);
+      const todo: Todo = {
+        id: crypto.randomUUID(),
+        name: requireName(name, "Todo"),
+        date,
+        status: "open",
+        order: await nextOrder(date),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        causedBy: parent.id,
+      };
+      if (parent.categoryId !== undefined) todo.categoryId = parent.categoryId;
       return persist(todo);
     },
 
@@ -189,9 +259,12 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
       return persist({ ...existing, deletedAt: timestamp, updatedAt: timestamp });
     },
 
-    async setFollowUp(idOrPrefix, followUp) {
-      const existing = await resolve(idOrPrefix);
-      return persist({ ...withFollowUp(existing, followUp), updatedAt: clock() });
+    async workstream(idOrPrefix) {
+      const start = await resolve(idOrPrefix);
+      const all = await repo.listTodos({ includeDeleted: true });
+      const root = findWorkstreamRoot(start, todoById(all));
+      const todos = workstreamMembers(root.id, all);
+      return { root: root.id, duration: sumDuration(todos), todos };
     },
 
     async rollover(ids) {

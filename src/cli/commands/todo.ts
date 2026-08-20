@@ -40,7 +40,7 @@ function displayRow(todo: Todo): Record<string, unknown> {
     time: formatTime(todo.scheduledTime),
     dur: todo.duration ?? "-",
     status: todo.status,
-    fu: todo.followUp === true ? "yes" : "-",
+    by: todo.causedBy?.slice(0, 8) ?? "-",
     rolls: todo.rolloverCount ?? "-",
     category: todo.categoryId?.slice(0, 8) ?? "-",
     emoji: todo.emoji ?? "-",
@@ -74,7 +74,6 @@ type AddFlags = CommonFlags & {
   duration?: string;
   category?: string;
   emoji?: string;
-  followUp?: boolean;
 };
 
 export const add = buildCommand<AddFlags, [string], AppContext>({
@@ -83,7 +82,6 @@ export const add = buildCommand<AddFlags, [string], AppContext>({
     flags: {
       ...commonFlags,
       date: { kind: "parsed", parse: String, optional: true, brief: "Due date (YYYY-MM-DD)." },
-      followUp: { kind: "boolean", optional: true, brief: "Mark the todo as a follow-up." },
       ...attributeFlags,
     },
     positional: {
@@ -97,7 +95,6 @@ export const add = buildCommand<AddFlags, [string], AppContext>({
     if (flags.time !== undefined) input.scheduledTime = flags.time;
     if (flags.duration !== undefined) input.duration = flags.duration;
     if (flags.emoji !== undefined) input.emoji = flags.emoji;
-    if (flags.followUp === true) input.followUp = true;
     const todo = await withServices(this, flags.data, async ({ todos, categories }) => {
       if (flags.category !== undefined)
         input.categoryId = await categories.resolveId(flags.category);
@@ -115,9 +112,21 @@ type ListFlags = CommonFlags & {
   status?: "open" | "done";
   scheduled?: boolean;
   unscheduled?: boolean;
-  followUp?: boolean;
+  causedBy?: string;
   includeDeleted?: boolean;
 };
+
+function todoListFilter(flags: ListFlags): TodoFilter {
+  const filter: TodoFilter = {};
+  if (flags.date !== undefined) filter.date = flags.date;
+  if (flags.from !== undefined) filter.dateFrom = flags.from;
+  if (flags.to !== undefined) filter.dateTo = flags.to;
+  if (flags.status !== undefined) filter.status = flags.status;
+  const scheduled = resolveScheduledFilter(flags.scheduled, flags.unscheduled);
+  if (scheduled !== undefined) filter.scheduled = scheduled;
+  if (flags.includeDeleted) filter.includeDeleted = true;
+  return filter;
+}
 
 export const list = buildCommand<ListFlags, [], AppContext>({
   docs: { brief: "List todos." },
@@ -146,23 +155,21 @@ export const list = buildCommand<ListFlags, [], AppContext>({
       },
       scheduled: { kind: "boolean", optional: true, brief: "Only scheduled todos." },
       unscheduled: { kind: "boolean", optional: true, brief: "Only unscheduled todos." },
-      followUp: { kind: "boolean", optional: true, brief: "Only follow-up todos." },
+      causedBy: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "List todos caused by this id or prefix.",
+      },
       includeDeleted: { kind: "boolean", optional: true, brief: "Include deleted todos." },
     },
   },
   async func(flags) {
-    const filter: TodoFilter = {};
-    if (flags.date !== undefined) filter.date = flags.date;
-    if (flags.from !== undefined) filter.dateFrom = flags.from;
-    if (flags.to !== undefined) filter.dateTo = flags.to;
-    if (flags.status !== undefined) filter.status = flags.status;
-    const scheduled = resolveScheduledFilter(flags.scheduled, flags.unscheduled);
-    if (scheduled !== undefined) filter.scheduled = scheduled;
-    if (flags.followUp) filter.followUp = true;
-    if (flags.includeDeleted) filter.includeDeleted = true;
+    const filter = todoListFilter(flags);
     const todos = await withServices(this, flags.data, async ({ todos, categories }) => {
       if (flags.category !== undefined)
         filter.categoryId = await categories.resolveId(flags.category);
+      if (flags.causedBy !== undefined) filter.causedBy = (await todos.get(flags.causedBy)).id;
       return todos.list(filter);
     });
     this.process.stdout.write(renderTodos(todos, flags.json));
@@ -252,24 +259,35 @@ export const move = buildCommand<CommonFlags, [string, string], AppContext>({
   },
 });
 
-type FollowUpFlags = CommonFlags & {
-  clear?: boolean;
-};
-
-export const followUp = buildCommand<FollowUpFlags, [string], AppContext>({
-  docs: { brief: "Mark a todo as a follow-up, or clear the mark with --clear." },
+export const followUp = buildCommand<CommonFlags, [string, string], AppContext>({
+  docs: { brief: "Create a follow-up todo caused by a parent." },
   parameters: {
-    flags: {
-      ...commonFlags,
-      clear: { kind: "boolean", optional: true, brief: "Remove the follow-up mark." },
+    flags: commonFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "Parent todo id or prefix.", placeholder: "id" },
+        { parse: String, brief: "Follow-up name.", placeholder: "name" },
+      ],
     },
-    positional: idPositional,
   },
-  async func(flags, id) {
-    const todo = await withServices(this, flags.data, ({ todos }) =>
-      todos.setFollowUp(id, flags.clear !== true),
-    );
+  async func(flags, id, name) {
+    const todo = await withServices(this, flags.data, ({ todos }) => todos.addFollowUp(id, name));
     this.process.stdout.write(renderTodo(todo, flags.json));
+  },
+});
+
+export const workstream = buildCommand<CommonFlags, [string], AppContext>({
+  docs: { brief: "Show the workstream tree and duration sum for a todo." },
+  parameters: { flags: commonFlags, positional: idPositional },
+  async func(flags, id) {
+    const result = await withServices(this, flags.data, ({ todos }) => todos.workstream(id));
+    if (flags.json) {
+      this.process.stdout.write(formatJson(result));
+      return;
+    }
+    this.process.stdout.write(`Workstream ${result.root} · ${result.duration}m\n`);
+    this.process.stdout.write(formatTable(result.todos.map(displayRow)));
   },
 });
 

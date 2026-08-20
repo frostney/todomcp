@@ -30,7 +30,7 @@ export type Todo = {
   duration?: TodoDuration;
   completedAt?: string;
   deletedAt?: string;
-  followUp?: boolean;
+  causedBy?: TodoId;
   rolloverCount?: number;
   rolloverHistory?: RolloverEntry[];
 };

@@ -126,7 +126,7 @@ describe("todo persistence", () => {
       duration: 30,
       completedAt: "2026-07-01T12:00:00.000Z",
       deletedAt: "2026-07-02T08:00:00.000Z",
-      followUp: true,
+      causedBy: "todo-parent",
       rolloverCount: 2,
       rolloverHistory: [
         {
@@ -255,15 +255,15 @@ describe("listTodos filtering", () => {
     expect(ids(await repo.listTodos({ scheduled: false }))).toEqual(["a", "c", "d", "e"]);
   });
 
-  test("followUp true returns only marked follow-ups", async () => {
+  test("causedBy returns only children of that parent", async () => {
     const repo = makeRepo();
     await seed(repo, [
-      todo({ id: "plain", date: "2026-06-24", order: 0 }),
-      todo({ id: "flagged", date: "2026-06-24", order: 1, followUp: true }),
+      todo({ id: "parent", date: "2026-06-24", order: 0 }),
+      todo({ id: "child", date: "2026-06-24", order: 1, causedBy: "parent" }),
+      todo({ id: "other", date: "2026-06-24", order: 2, causedBy: "someone-else" }),
     ]);
 
-    expect(ids(await repo.listTodos({ followUp: true }))).toEqual(["flagged"]);
-    expect(ids(await repo.listTodos({ followUp: false }))).toEqual(["plain"]);
+    expect(ids(await repo.listTodos({ causedBy: "parent" }))).toEqual(["child"]);
   });
 
   test("dateFrom and dateTo bound an inclusive range", async () => {
@@ -571,7 +571,7 @@ CREATE TABLE todos (
       date: "2026-06-23",
       status: "open",
     });
-    expect(loaded?.followUp).toBeUndefined();
+    expect(loaded?.causedBy).toBeUndefined();
     expect(loaded?.rolloverCount).toBeUndefined();
     expect(loaded?.rolloverHistory).toBeUndefined();
 
@@ -579,7 +579,7 @@ CREATE TABLE todos (
       id: "legacy",
       name: "Legacy item",
       date: "2026-06-23",
-      followUp: true,
+      causedBy: "parent",
       rolloverCount: 1,
       rolloverHistory: [
         { fromDate: "2026-06-22", toDate: "2026-06-23", rolledOverAt: "2026-06-23T08:00:00.000Z" },
@@ -592,6 +592,60 @@ CREATE TABLE todos (
     const uv = (check.query("PRAGMA user_version").get() as { user_version: number }).user_version;
     check.close();
     expect(uv).toBe(SCHEMA_VERSION);
+  });
+
+  test("migrates a v2 database with follow_up=1 without converting it", async () => {
+    const path = await tempPath("legacy-v2.sqlite");
+    const raw = new Database(path);
+    raw.run(`
+CREATE TABLE categories (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, emoji TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE todos (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
+  "order" INTEGER NOT NULL, category_id TEXT, emoji TEXT, scheduled_time INTEGER,
+  duration INTEGER, completed_at TEXT, deleted_at TEXT,
+  follow_up INTEGER NOT NULL DEFAULT 0, rollover_count INTEGER NOT NULL DEFAULT 0,
+  rollover_history TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+`);
+    raw.run(`PRAGMA user_version = 2`);
+    raw.run(
+      `INSERT INTO todos (id, name, date, status, "order", follow_up, created_at, updated_at)
+       VALUES ('flagged', 'Old follow-up', '2026-06-23', 'open', 0, 1,
+               '2026-06-23T10:00:00.000Z', '2026-06-23T10:00:00.000Z')`,
+    );
+    raw.close();
+
+    const repo = track(createSqliteRepository({ path }));
+    const loaded = await repo.getTodo("flagged");
+    expect(loaded).toMatchObject({
+      id: "flagged",
+      name: "Old follow-up",
+      date: "2026-06-23",
+      status: "open",
+    });
+    expect(loaded?.causedBy).toBeUndefined();
+    expect((loaded as { followUp?: boolean } | undefined)?.followUp).toBeUndefined();
+
+    const linked = todo({
+      id: "flagged",
+      name: "Old follow-up",
+      date: "2026-06-23",
+      causedBy: "parent",
+    });
+    await repo.putTodo(linked);
+    expect(await repo.getTodo("flagged")).toEqual(linked);
+
+    const check = new Database(path);
+    const uv = (check.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+    const columns = (check.query("PRAGMA table_info(todos)").all() as Array<{ name: string }>).map(
+      (col) => col.name,
+    );
+    check.close();
+    expect(uv).toBe(SCHEMA_VERSION);
+    expect(columns).toContain("caused_by");
   });
 
   async function getTodoAfterRawUpdate(
@@ -647,10 +701,10 @@ CREATE TABLE todos (
     const repo = makeRepo();
     await repo.putTodos([
       todo({ id: "batch-a", order: 0 }),
-      todo({ id: "batch-b", order: 1, followUp: true }),
+      todo({ id: "batch-b", order: 1, causedBy: "batch-a" }),
     ]);
 
     expect(ids(await repo.listTodos())).toEqual(["batch-a", "batch-b"]);
-    expect((await repo.getTodo("batch-b"))?.followUp).toBe(true);
+    expect((await repo.getTodo("batch-b"))?.causedBy).toBe("batch-a");
   });
 });

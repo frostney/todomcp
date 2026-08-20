@@ -265,26 +265,135 @@ describe("list validation", () => {
   });
 });
 
-describe("setFollowUp", () => {
-  test("marks an open todo as a follow-up without changing status", async () => {
-    const { service } = makeService(steppingClock());
-    const created = await service.add(addInput({ name: "Call back" }));
+describe("addFollowUp", () => {
+  test("creates two children from one parent dated today", async () => {
+    const { service } = makeService();
+    const parent = await service.add(addInput({ name: "Parent", date: "2026-06-20" }));
 
-    const marked = await service.setFollowUp(created.id, true);
+    const first = await service.addFollowUp(parent.id, "Child one");
+    const second = await service.addFollowUp(parent.id, "Child two");
 
-    expect(marked.status).toBe("open");
-    expect(marked.followUp).toBe(true);
-    expect(marked.updatedAt).not.toBe(created.updatedAt);
+    expect(first.status).toBe("open");
+    expect(first.date).toBe(TODAY);
+    expect(first.causedBy).toBe(parent.id);
+    expect(second.causedBy).toBe(parent.id);
+    expect(second.date).toBe(TODAY);
+    const children = await service.list({ causedBy: parent.id });
+    expect(children.map((todo) => todo.id)).toEqual([first.id, second.id]);
   });
 
-  test("clears the follow-up mark", async () => {
+  test("inherits parent category and not date, duration, emoji, or time", async () => {
     const { service } = makeService();
-    const created = await service.add(addInput({ followUp: true }));
+    const parent = await service.add(
+      addInput({
+        name: "Parent",
+        date: "2026-06-20",
+        categoryId: "cat-work",
+        duration: "30",
+        emoji: "📌",
+        scheduledTime: "09:00",
+      }),
+    );
 
-    const cleared = await service.setFollowUp(created.id, false);
+    const child = await service.addFollowUp(parent.id, "Child");
 
-    expect(cleared.followUp).toBeUndefined();
-    expect(cleared.status).toBe("open");
+    expect(child.categoryId).toBe("cat-work");
+    expect(child.date).toBe(TODAY);
+    expect(child.duration).toBeUndefined();
+    expect(child.emoji).toBeUndefined();
+    expect(child.scheduledTime).toBeUndefined();
+  });
+
+  test("throws NotFoundError when the parent cannot be resolved", async () => {
+    const { service } = makeService();
+
+    await expect(service.addFollowUp("missing", "Child")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("completing a parent does not spawn another child", async () => {
+    const { service } = makeService();
+    const parent = await service.add(addInput({ name: "Parent" }));
+    await service.addFollowUp(parent.id, "Child one");
+    await service.addFollowUp(parent.id, "Child two");
+
+    await service.complete(parent.id);
+
+    const children = await service.list({ causedBy: parent.id });
+    expect(children).toHaveLength(2);
+    expect((await service.list()).map((todo) => todo.name).sort()).toEqual([
+      "Child one",
+      "Child two",
+      "Parent",
+    ]);
+  });
+});
+
+describe("workstream", () => {
+  test("on a child includes the sibling and sums duration", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "root", name: "Root", duration: 60, order: 0 });
+    await seedTodo(repo, { id: "child-a", name: "A", causedBy: "root", duration: 15, order: 1 });
+    await seedTodo(repo, { id: "child-b", name: "B", causedBy: "root", duration: 30, order: 2 });
+
+    const result = await service.workstream("child-a");
+
+    expect(result.root).toBe("root");
+    expect(result.duration).toBe(105);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["root", "child-a", "child-b"]);
+  });
+
+  test("includes a deleted parent in the walk and duration sum", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, {
+      id: "root",
+      name: "Root",
+      duration: 30,
+      order: 0,
+      deletedAt: NOW,
+    });
+    await seedTodo(repo, { id: "child", name: "Child", causedBy: "root", duration: 15, order: 1 });
+
+    const result = await service.workstream("child");
+
+    expect(result.root).toBe("root");
+    expect(result.duration).toBe(45);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["root", "child"]);
+    expect(result.todos[0]?.deletedAt).toBe(NOW);
+  });
+
+  test("stops at a node whose causedBy parent is missing", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, {
+      id: "orphan-root",
+      name: "Orphan",
+      causedBy: "ghost",
+      duration: 15,
+      order: 0,
+    });
+    await seedTodo(repo, {
+      id: "leaf",
+      name: "Leaf",
+      causedBy: "orphan-root",
+      duration: 30,
+      order: 1,
+    });
+
+    const result = await service.workstream("leaf");
+
+    expect(result.root).toBe("orphan-root");
+    expect(result.duration).toBe(45);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["orphan-root", "leaf"]);
+  });
+
+  test("treats a self-causedBy node as its own root", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "loop", name: "Loop", causedBy: "loop", duration: 15, order: 0 });
+
+    const result = await service.workstream("loop");
+
+    expect(result.root).toBe("loop");
+    expect(result.duration).toBe(15);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["loop"]);
   });
 });
 
@@ -293,11 +402,10 @@ describe("rollover", () => {
     const { service, repo } = makeService();
     await seedTodo(repo, { id: "open-yesterday", date: "2026-06-23", status: "open", order: 0 });
     await seedTodo(repo, {
-      id: "follow-yesterday",
+      id: "open-earlier",
       date: "2026-06-22",
       status: "open",
       order: 0,
-      followUp: true,
     });
     await seedTodo(repo, { id: "done-yesterday", date: "2026-06-23", status: "done", order: 1 });
     await seedTodo(repo, { id: "today-open", date: TODAY, status: "open", order: 0 });
@@ -313,19 +421,18 @@ describe("rollover", () => {
 
     expect(result.date).toBe(TODAY);
     expect(result.count).toBe(2);
-    expect(result.todos.map((todo) => todo.id)).toEqual(["follow-yesterday", "open-yesterday"]);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["open-earlier", "open-yesterday"]);
 
-    const follow = await service.get("follow-yesterday");
-    expect(follow.date).toBe(TODAY);
-    expect(follow.followUp).toBe(true);
-    expect(follow.rolloverCount).toBe(1);
-    expect(follow.rolloverHistory).toEqual([
+    const earlier = await service.get("open-earlier");
+    expect(earlier.date).toBe(TODAY);
+    expect(earlier.rolloverCount).toBe(1);
+    expect(earlier.rolloverHistory).toEqual([
       { fromDate: "2026-06-22", toDate: TODAY, rolledOverAt: NOW },
     ]);
 
     const open = await service.get("open-yesterday");
     expect(open.date).toBe(TODAY);
-    expect(open.order).toBe(follow.order + 1);
+    expect(open.order).toBe(earlier.order + 1);
     expect(open.rolloverCount).toBe(1);
 
     expect((await service.get("done-yesterday")).date).toBe("2026-06-23");

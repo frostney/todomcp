@@ -42,17 +42,53 @@ export async function importData(
     asValidationError(() => parseTodo(raw), `Todo[${index}]`),
   );
 
-  const categoryIds = new Set(categories.map((category) => category.id));
+  assertTodoReferences(todos, new Set(categories.map((category) => category.id)));
+
+  await repo.importSnapshot({ version: SCHEMA_VERSION, todos, categories });
+  return { todos: todos.length, categories: categories.length };
+}
+
+function assertTodoReferences(todos: readonly Todo[], categoryIds: Set<string>): void {
+  const todoIds = new Set(todos.map((todo) => todo.id));
   for (const todo of todos) {
     if (todo.categoryId !== undefined && !categoryIds.has(todo.categoryId)) {
       throw new ValidationError(
         `Todo "${todo.id}" references unknown category "${todo.categoryId}"`,
       );
     }
+    if (todo.causedBy === undefined) continue;
+    if (todo.causedBy === todo.id) {
+      throw new ValidationError(`Todo "${todo.id}" cannot be caused by itself`);
+    }
+    if (!todoIds.has(todo.causedBy)) {
+      throw new ValidationError(`Todo "${todo.id}" references unknown causedBy "${todo.causedBy}"`);
+    }
   }
+  if (causedByGraphHasCycle(todos)) {
+    throw new ValidationError("causedBy graph contains a cycle");
+  }
+}
 
-  await repo.importSnapshot({ version: SCHEMA_VERSION, todos, categories });
-  return { todos: todos.length, categories: categories.length };
+function causedByGraphHasCycle(todos: readonly Todo[]): boolean {
+  const parentOf = new Map<string, string>();
+  for (const todo of todos) {
+    if (todo.causedBy !== undefined) parentOf.set(todo.id, todo.causedBy);
+  }
+  for (const start of parentOf.keys()) {
+    if (parentChainCycles(start, parentOf)) return true;
+  }
+  return false;
+}
+
+function parentChainCycles(start: string, parentOf: ReadonlyMap<string, string>): boolean {
+  const seen = new Set<string>();
+  let current: string | undefined = start;
+  while (current !== undefined) {
+    if (seen.has(current)) return true;
+    seen.add(current);
+    current = parentOf.get(current);
+  }
+  return false;
 }
 
 function parseCategory(raw: unknown): Category {
@@ -86,7 +122,7 @@ function parseTodo(raw: unknown): Todo {
     updatedAt: requireString(raw, "updatedAt"),
   };
   applyOptionalTodoFields(todo, raw);
-  applyFollowUpAndRollover(todo, raw);
+  applyCausedByAndRollover(todo, raw);
   return todo;
 }
 
@@ -107,16 +143,14 @@ function applyOptionalTodoFields(todo: Todo, raw: Record<string, unknown>): void
   if (deletedAt !== undefined) todo.deletedAt = deletedAt;
 }
 
-function applyFollowUpAndRollover(todo: Todo, raw: Record<string, unknown>): void {
-  applyFollowUp(todo, raw);
+function applyCausedByAndRollover(todo: Todo, raw: Record<string, unknown>): void {
+  applyCausedBy(todo, raw);
   applyRolloverMetadata(todo, raw);
 }
 
-function applyFollowUp(todo: Todo, raw: Record<string, unknown>): void {
-  if (raw.followUp === true) todo.followUp = true;
-  else if (raw.followUp !== undefined && raw.followUp !== false) {
-    throw new Error("followUp must be a boolean");
-  }
+function applyCausedBy(todo: Todo, raw: Record<string, unknown>): void {
+  const causedBy = optionalString(raw, "causedBy");
+  if (causedBy !== undefined) todo.causedBy = causedBy;
 }
 
 function applyRolloverMetadata(todo: Todo, raw: Record<string, unknown>): void {
