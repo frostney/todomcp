@@ -128,7 +128,9 @@ function applyOptionalRowFields(todo: Todo, row: TodoRow): void {
 
 function applyStoredFollowUpAndRollover(todo: Todo, row: TodoRow): void {
   if (row.follow_up === 1) todo.followUp = true;
-  if (row.rollover_count > 0) todo.rolloverCount = row.rollover_count;
+  if (Number.isInteger(row.rollover_count) && row.rollover_count > 0) {
+    todo.rolloverCount = row.rollover_count;
+  }
   const history = parseStoredHistory(row.rollover_history);
   if (history !== undefined) todo.rolloverHistory = history;
 }

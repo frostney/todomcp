@@ -594,37 +594,53 @@ CREATE TABLE todos (
     expect(uv).toBe(SCHEMA_VERSION);
   });
 
-  test("drops malformed stored rollover history", async () => {
-    const path = await tempPath("malformed.sqlite");
-    const fileRepo = track(createSqliteRepository({ path }));
-    await fileRepo.putTodo(todo({ id: "raw-history" }));
-    fileRepo.close();
+  async function getTodoAfterRawUpdate(
+    fileName: string,
+    id: string,
+    column: string,
+    value: string | number,
+  ): Promise<Todo | undefined> {
+    const path = await tempPath(fileName);
+    const writer = track(createSqliteRepository({ path }));
+    await writer.putTodo(todo({ id }));
+    writer.close();
     openRepos.pop();
 
     const db = new Database(path);
-    db.run("UPDATE todos SET rollover_history = ? WHERE id = ?", ["[{}]", "raw-history"]);
+    db.run(`UPDATE todos SET ${column} = ? WHERE id = ?`, [value, id]);
     db.close();
 
-    const loaded = track(createSqliteRepository({ path }));
-    expect((await loaded.getTodo("raw-history"))?.rolloverHistory).toBeUndefined();
+    return track(createSqliteRepository({ path })).getTodo(id);
+  }
+
+  test("drops malformed stored rollover history", async () => {
+    const loaded = await getTodoAfterRawUpdate(
+      "malformed.sqlite",
+      "raw-history",
+      "rollover_history",
+      "[{}]",
+    );
+    expect(loaded?.rolloverHistory).toBeUndefined();
   });
 
   test("drops stored rollover history with invalid date strings", async () => {
-    const path = await tempPath("invalid-dates.sqlite");
-    const fileRepo = track(createSqliteRepository({ path }));
-    await fileRepo.putTodo(todo({ id: "bad-dates" }));
-    fileRepo.close();
-    openRepos.pop();
-
-    const db = new Database(path);
-    db.run("UPDATE todos SET rollover_history = ? WHERE id = ?", [
-      JSON.stringify([{ fromDate: "a", toDate: "z", rolledOverAt: "2026-06-20T09:00:00.000Z" }]),
+    const loaded = await getTodoAfterRawUpdate(
+      "invalid-dates.sqlite",
       "bad-dates",
-    ]);
-    db.close();
+      "rollover_history",
+      JSON.stringify([{ fromDate: "a", toDate: "z", rolledOverAt: "2026-06-20T09:00:00.000Z" }]),
+    );
+    expect(loaded?.rolloverHistory).toBeUndefined();
+  });
 
-    const loaded = track(createSqliteRepository({ path }));
-    expect((await loaded.getTodo("bad-dates"))?.rolloverHistory).toBeUndefined();
+  test("omits a non-integer stored rollover count", async () => {
+    const loaded = await getTodoAfterRawUpdate(
+      "fractional-count.sqlite",
+      "fractional-count",
+      "rollover_count",
+      1.5,
+    );
+    expect(loaded?.rolloverCount).toBeUndefined();
   });
 
   test("putTodos writes multiple rows", async () => {
