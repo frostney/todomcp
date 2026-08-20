@@ -74,20 +74,28 @@ function causedByGraphHasCycle(todos: readonly Todo[]): boolean {
   for (const todo of todos) {
     if (todo.causedBy !== undefined) parentOf.set(todo.id, todo.causedBy);
   }
+  const verified = new Set<string>();
   for (const start of parentOf.keys()) {
-    if (parentChainCycles(start, parentOf)) return true;
+    if (parentChainCycles(start, parentOf, verified)) return true;
   }
   return false;
 }
 
-function parentChainCycles(start: string, parentOf: ReadonlyMap<string, string>): boolean {
-  const seen = new Set<string>();
+function parentChainCycles(
+  start: string,
+  parentOf: ReadonlyMap<string, string>,
+  verified: Set<string>,
+): boolean {
+  if (verified.has(start)) return false;
+  const chain = new Set<string>();
   let current: string | undefined = start;
   while (current !== undefined) {
-    if (seen.has(current)) return true;
-    seen.add(current);
+    if (verified.has(current)) break;
+    if (chain.has(current)) return true;
+    chain.add(current);
     current = parentOf.get(current);
   }
+  for (const id of chain) verified.add(id);
   return false;
 }
 

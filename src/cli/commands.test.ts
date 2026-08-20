@@ -241,7 +241,7 @@ describe("end-to-end lifecycle", () => {
 
 describe("follow-up and workstream", () => {
   test("follow-up creates a child; list --caused-by finds it; workstream --json; done does not spawn", async () => {
-    const parent = await addTodo("Parent work");
+    const parent = await addTodo("Parent work", ["--duration", "30"]);
 
     const created = await runCli(["follow-up", parent.id, "Child work", "--json"]);
     expect(created.exitCode).toBe(0);
@@ -263,7 +263,7 @@ describe("follow-up and workstream", () => {
       todos: Todo[];
     };
     expect(payload.root).toBe(parent.id);
-    expect(payload.duration).toBe(0);
+    expect(payload.duration).toBe(30);
     expect(payload.todos.map((todo) => todo.id)).toEqual([parent.id, child.id]);
 
     expect((await runCli(["done", parent.id, "--json"])).exitCode).toBe(0);
