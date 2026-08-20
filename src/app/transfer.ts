@@ -1,4 +1,4 @@
-import type { Category, Todo, TodoStatus } from "../domain/model";
+import type { Category, RolloverEntry, Todo, TodoStatus } from "../domain/model";
 import { parseDateString, parseMinuteOfDay, parseTodoDuration } from "../domain/validation";
 import { SCHEMA_VERSION, type StoreSnapshot, type TodoRepository } from "../storage/repository";
 import { ValidationError } from "./errors";
@@ -100,8 +100,35 @@ function parseTodo(raw: unknown): Todo {
   if (completedAt !== undefined) todo.completedAt = completedAt;
   const deletedAt = optionalString(raw, "deletedAt");
   if (deletedAt !== undefined) todo.deletedAt = deletedAt;
+  if (raw.followUp === true) todo.followUp = true;
+  else if (raw.followUp !== undefined && raw.followUp !== false) {
+    throw new Error("followUp must be a boolean");
+  }
+  if (raw.rolloverCount !== undefined) {
+    const count = requireNumber(raw, "rolloverCount");
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error("rolloverCount must be a non-negative integer");
+    }
+    if (count > 0) todo.rolloverCount = count;
+  }
+  if (raw.rolloverHistory !== undefined) {
+    const history = parseRolloverHistory(raw.rolloverHistory);
+    if (history.length > 0) todo.rolloverHistory = history;
+  }
 
   return todo;
+}
+
+function parseRolloverHistory(value: unknown): RolloverEntry[] {
+  if (!Array.isArray(value)) throw new Error("rolloverHistory must be an array");
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) throw new Error(`rolloverHistory[${index}] must be an object`);
+    return {
+      fromDate: parseDateString(requireString(entry, "fromDate")),
+      toDate: parseDateString(requireString(entry, "toDate")),
+      rolledOverAt: requireString(entry, "rolledOverAt"),
+    };
+  });
 }
 
 function parseStatus(value: unknown): TodoStatus {

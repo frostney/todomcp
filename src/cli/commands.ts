@@ -1,7 +1,17 @@
 import { buildRouteMap } from "@stricli/core";
 import { categoryRoute } from "./commands/category";
 import { exportCommand, importCommand } from "./commands/data";
-import { add, deleteCommand, done, edit, list, move, show } from "./commands/todo";
+import {
+  add,
+  deleteCommand,
+  done,
+  edit,
+  followUp,
+  list,
+  move,
+  rollover,
+  show,
+} from "./commands/todo";
 import type { AppContext } from "./context";
 
 export const rootRoute = buildRouteMap<string, AppContext>({
@@ -13,6 +23,8 @@ export const rootRoute = buildRouteMap<string, AppContext>({
     edit,
     move,
     delete: deleteCommand,
+    followUp,
+    rollover,
     category: categoryRoute,
     export: exportCommand,
     import: importCommand,

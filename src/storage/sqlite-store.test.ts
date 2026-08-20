@@ -126,6 +126,20 @@ describe("todo persistence", () => {
       duration: 30,
       completedAt: "2026-07-01T12:00:00.000Z",
       deletedAt: "2026-07-02T08:00:00.000Z",
+      followUp: true,
+      rolloverCount: 2,
+      rolloverHistory: [
+        {
+          fromDate: "2026-06-29",
+          toDate: "2026-06-30",
+          rolledOverAt: "2026-06-30T08:00:00.000Z",
+        },
+        {
+          fromDate: "2026-06-30",
+          toDate: "2026-07-01",
+          rolledOverAt: "2026-07-01T08:00:00.000Z",
+        },
+      ],
       createdAt: "2026-07-01T09:00:00.000Z",
       updatedAt: "2026-07-01T12:00:00.000Z",
     });
@@ -239,6 +253,17 @@ describe("listTodos filtering", () => {
     const repo = await seeded();
 
     expect(ids(await repo.listTodos({ scheduled: false }))).toEqual(["a", "c", "d", "e"]);
+  });
+
+  test("followUp true returns only marked follow-ups", async () => {
+    const repo = makeRepo();
+    await seed(repo, [
+      todo({ id: "plain", date: "2026-06-24", order: 0 }),
+      todo({ id: "flagged", date: "2026-06-24", order: 1, followUp: true }),
+    ]);
+
+    expect(ids(await repo.listTodos({ followUp: true }))).toEqual(["flagged"]);
+    expect(ids(await repo.listTodos({ followUp: false }))).toEqual(["plain"]);
   });
 
   test("dateFrom and dateTo bound an inclusive range", async () => {
@@ -511,5 +536,72 @@ describe("on-disk failure modes", () => {
     raw.close();
 
     await expectStoreError(path, StoreVersionError);
+  });
+});
+
+describe("schema migration", () => {
+  test("migrates a v1 database and preserves existing rows", async () => {
+    const path = await tempPath("legacy-v1.sqlite");
+    const raw = new Database(path);
+    raw.run(`
+CREATE TABLE categories (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, emoji TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE todos (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
+  "order" INTEGER NOT NULL, category_id TEXT, emoji TEXT, scheduled_time INTEGER,
+  duration INTEGER, completed_at TEXT, deleted_at TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+`);
+    raw.run(`PRAGMA user_version = 1`);
+    raw.run(
+      `INSERT INTO todos (id, name, date, status, "order", created_at, updated_at)
+       VALUES ('legacy', 'Legacy item', '2026-06-23', 'open', 0,
+               '2026-06-23T10:00:00.000Z', '2026-06-23T10:00:00.000Z')`,
+    );
+    raw.close();
+
+    const repo = track(createSqliteRepository({ path }));
+    const loaded = await repo.getTodo("legacy");
+    expect(loaded).toMatchObject({
+      id: "legacy",
+      name: "Legacy item",
+      date: "2026-06-23",
+      status: "open",
+    });
+    expect(loaded?.followUp).toBeUndefined();
+    expect(loaded?.rolloverCount).toBeUndefined();
+    expect(loaded?.rolloverHistory).toBeUndefined();
+
+    const versioned = todo({
+      id: "legacy",
+      name: "Legacy item",
+      date: "2026-06-23",
+      followUp: true,
+      rolloverCount: 1,
+      rolloverHistory: [
+        { fromDate: "2026-06-22", toDate: "2026-06-23", rolledOverAt: "2026-06-23T08:00:00.000Z" },
+      ],
+    });
+    await repo.putTodo(versioned);
+    expect(await repo.getTodo("legacy")).toEqual(versioned);
+
+    const check = new Database(path);
+    const uv = (check.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+    check.close();
+    expect(uv).toBe(SCHEMA_VERSION);
+  });
+
+  test("putTodos writes multiple rows", async () => {
+    const repo = makeRepo();
+    await repo.putTodos([
+      todo({ id: "batch-a", order: 0 }),
+      todo({ id: "batch-b", order: 1, followUp: true }),
+    ]);
+
+    expect(ids(await repo.listTodos())).toEqual(["batch-a", "batch-b"]);
+    expect((await repo.getTodo("batch-b"))?.followUp).toBe(true);
   });
 });

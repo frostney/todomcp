@@ -1,6 +1,6 @@
 import type { Category, CategoryId, DateString, Todo, TodoId, TodoStatus } from "../domain/model";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type StoreSnapshot = {
   version: number;
@@ -15,6 +15,7 @@ export type TodoFilter = {
   categoryId?: CategoryId;
   status?: TodoStatus;
   scheduled?: boolean;
+  followUp?: boolean;
   includeDeleted?: boolean;
 };
 
@@ -36,6 +37,7 @@ export interface TodoRepository {
   listTodos(filter?: TodoFilter): Promise<Todo[]>;
   getTodo(id: TodoId): Promise<Todo | undefined>;
   putTodo(todo: Todo): Promise<void>;
+  putTodos(todos: readonly Todo[]): Promise<void>;
   listCategories(): Promise<Category[]>;
   getCategory(id: CategoryId): Promise<Category | undefined>;
   putCategory(category: Category): Promise<void>;
