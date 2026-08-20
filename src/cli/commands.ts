@@ -11,6 +11,7 @@ import {
   move,
   rollover,
   show,
+  workstream,
 } from "./commands/todo";
 import type { AppContext } from "./context";
 
@@ -24,6 +25,7 @@ export const rootRoute = buildRouteMap<string, AppContext>({
     move,
     delete: deleteCommand,
     followUp,
+    workstream,
     rollover,
     category: categoryRoute,
     export: exportCommand,

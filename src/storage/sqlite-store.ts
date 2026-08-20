@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
   "order" INTEGER NOT NULL, category_id TEXT, emoji TEXT, scheduled_time INTEGER,
-  duration INTEGER, completed_at TEXT, deleted_at TEXT,
-  follow_up INTEGER NOT NULL DEFAULT 0, rollover_count INTEGER NOT NULL DEFAULT 0,
+  duration INTEGER, completed_at TEXT, deleted_at TEXT, caused_by TEXT,
+  rollover_count INTEGER NOT NULL DEFAULT 0,
   rollover_history TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_todos_date_status ON todos (date, status);
@@ -44,7 +44,7 @@ type TodoRow = {
   duration: number | null;
   completed_at: string | null;
   deleted_at: string | null;
-  follow_up: number;
+  caused_by: string | null;
   rollover_count: number;
   rollover_history: string | null;
   created_at: string;
@@ -62,7 +62,7 @@ type CategoryRow = {
 
 const TODO_UPSERT = `INSERT OR REPLACE INTO todos (
   id, name, date, status, "order", category_id, emoji, scheduled_time,
-  duration, completed_at, deleted_at, follow_up, rollover_count, rollover_history,
+  duration, completed_at, deleted_at, caused_by, rollover_count, rollover_history,
   created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
@@ -113,7 +113,7 @@ function mapTodoRow(row: TodoRow): Todo {
     updatedAt: row.updated_at,
   };
   applyOptionalRowFields(todo, row);
-  applyStoredFollowUpAndRollover(todo, row);
+  applyStoredCausedByAndRollover(todo, row);
   return todo;
 }
 
@@ -126,8 +126,8 @@ function applyOptionalRowFields(todo: Todo, row: TodoRow): void {
   if (row.deleted_at !== null) todo.deletedAt = row.deleted_at;
 }
 
-function applyStoredFollowUpAndRollover(todo: Todo, row: TodoRow): void {
-  if (row.follow_up === 1) todo.followUp = true;
+function applyStoredCausedByAndRollover(todo: Todo, row: TodoRow): void {
+  if (row.caused_by !== null) todo.causedBy = row.caused_by;
   if (Number.isInteger(row.rollover_count) && row.rollover_count > 0) {
     todo.rolloverCount = row.rollover_count;
   }
@@ -170,7 +170,7 @@ function todoParams(todo: Todo): Array<string | number | null> {
     nullable(todo.duration),
     nullable(todo.completedAt),
     nullable(todo.deletedAt),
-    todo.followUp === true ? 1 : 0,
+    nullable(todo.causedBy),
     todo.rolloverCount ?? 0,
     storedRolloverHistory(todo),
     todo.createdAt,
@@ -212,8 +212,10 @@ function buildTodoWhere(filter: TodoFilter = {}): {
 
   if (filter.scheduled === true) conditions.push("scheduled_time IS NOT NULL");
   else if (filter.scheduled === false) conditions.push("scheduled_time IS NULL");
-  if (filter.followUp === true) conditions.push("follow_up = 1");
-  else if (filter.followUp === false) conditions.push("follow_up = 0");
+  if (filter.causedBy !== undefined) {
+    conditions.push("caused_by = ?");
+    params.push(filter.causedBy);
+  }
   if (filter.includeDeleted !== true) conditions.push("deleted_at IS NULL");
 
   const clause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
@@ -226,25 +228,44 @@ function todoColumnNames(db: Database): Set<string> {
   );
 }
 
+function userVersion(db: Database): number {
+  return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+}
+
+function addColumnIfMissing(db: Database, columns: Set<string>, name: string, ddl: string): void {
+  if (!columns.has(name)) db.run(ddl);
+}
+
+function addRolloverColumns(db: Database, columns: Set<string>): void {
+  addColumnIfMissing(
+    db,
+    columns,
+    "rollover_count",
+    "ALTER TABLE todos ADD COLUMN rollover_count INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(
+    db,
+    columns,
+    "rollover_history",
+    "ALTER TABLE todos ADD COLUMN rollover_history TEXT",
+  );
+}
+
+function addCausedByColumn(db: Database, columns: Set<string>): void {
+  addColumnIfMissing(db, columns, "caused_by", "ALTER TABLE todos ADD COLUMN caused_by TEXT");
+}
+
+function applySchemaMigrations(db: Database, uv: number): void {
+  const columns = todoColumnNames(db);
+  if (uv > 0 && uv < 2) addRolloverColumns(db, columns);
+  if (uv > 0 && uv < 3) addCausedByColumn(db, columns);
+}
+
 function migrateSchema(db: Database, path: string): void {
-  const uv = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+  const uv = userVersion(db);
   if (uv > SCHEMA_VERSION) throw new StoreVersionError(path, uv);
-
   db.run(SCHEMA_DDL);
-
-  if (uv > 0 && uv < 2) {
-    const columns = todoColumnNames(db);
-    if (!columns.has("follow_up")) {
-      db.run("ALTER TABLE todos ADD COLUMN follow_up INTEGER NOT NULL DEFAULT 0");
-    }
-    if (!columns.has("rollover_count")) {
-      db.run("ALTER TABLE todos ADD COLUMN rollover_count INTEGER NOT NULL DEFAULT 0");
-    }
-    if (!columns.has("rollover_history")) {
-      db.run("ALTER TABLE todos ADD COLUMN rollover_history TEXT");
-    }
-  }
-
+  applySchemaMigrations(db, uv);
   if (uv < SCHEMA_VERSION) {
     db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }

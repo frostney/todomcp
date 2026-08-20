@@ -82,18 +82,19 @@ exact id or exact (unique) name.
 
 ```text
 todorepl add <name> [--date YYYY-MM-DD] [--time HH:MM] [--duration min]
-                    [--category name] [--emoji char] [--follow-up]
+                    [--category name] [--emoji char]
                     [--data path] [--json]
 todorepl list [--date YYYY-MM-DD] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
               [--category name] [--status open|done] [--scheduled] [--unscheduled]
-              [--follow-up] [--include-deleted] [--data path] [--json]
+              [--caused-by id] [--include-deleted] [--data path] [--json]
 todorepl show <id> [--data path] [--json]
 todorepl done <id> [--data path] [--json]
 todorepl edit <id> [--name text] [--time HH:MM] [--duration min]
                    [--category name] [--emoji char] [--data path] [--json]
 todorepl move <id> <date> [--data path] [--json]
 todorepl delete <id> [--data path] [--json]
-todorepl follow-up <id> [--clear] [--data path] [--json]
+todorepl follow-up <id> <name> [--data path] [--json]
+todorepl workstream <id> [--data path] [--json]
 todorepl rollover [id ...] [--data path] [--json]
 todorepl category create <name> [--color hex] [--emoji char] [--data path] [--json]
 todorepl category list [--data path] [--json]
@@ -107,12 +108,13 @@ todorepl --help
 todorepl --version
 ```
 
-`add` creates a todo on a date (defaulting to today) and can mark it as a follow-up. `list` filters by
-date, range, category, status, scheduling, and follow-up, and hides soft-deleted todos unless
+`add` creates a todo on a date (defaulting to today). `list` filters by
+date, range, category, status, scheduling, and `causedBy` parent, and hides soft-deleted todos unless
 `--include-deleted` is set. `show` and `done` inspect and complete a single todo, `edit` updates its
-fields, `move` reschedules it to another date, and `delete` performs a soft delete. `follow-up` marks
-or clears (`--clear`) a follow-up without changing status. `rollover` moves unfinished (open or
-follow-up, not done, not deleted) todos with a date before today onto today. Pass one or more ids to roll only those todos. It records
+fields, `move` reschedules it to another date, and `delete` performs a soft delete. `follow-up`
+creates a new open todo dated today, caused by the resolved parent and inheriting its category.
+`workstream` walks to the root via `causedBy` and reports the tree plus duration sum.
+`rollover` moves unfinished (open, not done, not deleted) todos with a date before today onto today. Pass one or more ids to roll only those todos. It records
 `rolloverCount` plus `{ fromDate, toDate, rolledOverAt }` history. The `category` subcommands create, list, show, edit, and delete
 categories, which carry a name plus optional color and emoji and are referenced by exact id or exact
 (unique) name. On todo commands, `--category <name-or-id>` resolves to an existing category, and a

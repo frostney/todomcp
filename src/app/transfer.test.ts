@@ -227,25 +227,73 @@ describe("importData", () => {
   });
 });
 
-describe("follow-up and rollover transfer", () => {
-  test("round-trips followUp, rolloverCount, and rolloverHistory", async () => {
+describe("causedBy and rollover transfer", () => {
+  test("round-trips causedBy, rolloverCount, and rolloverHistory", async () => {
     const repo = makeRepo();
+    const parent = todo({ id: "parent" });
     const restored = todo({
       id: "rolled",
-      followUp: true,
+      order: 1,
+      causedBy: "parent",
       rolloverCount: 1,
       rolloverHistory: [
         { fromDate: "2026-06-23", toDate: TODAY, rolledOverAt: "2026-06-24T08:00:00.000Z" },
       ],
     });
 
-    await importData(repo, snapshot({ todos: [restored] }));
+    await importData(repo, snapshot({ todos: [parent, restored] }));
 
     expect(await repo.getTodo("rolled")).toEqual(restored);
-    expect((await exportData(repo)).todos[0]).toEqual(restored);
+    expect((await exportData(repo)).todos.find((entry) => entry.id === "rolled")).toEqual(restored);
   });
 
-  test("accepts a schema version 1 snapshot without follow-up fields", async () => {
+  test("ignores a schema version 2 followUp mark and exports schema 3", async () => {
+    const repo = makeRepo();
+    const legacy = {
+      ...todo({ id: "v2-todo" }),
+      followUp: true,
+    };
+
+    await importData(repo, snapshot({ version: 2, todos: [legacy] }));
+
+    const loaded = await repo.getTodo("v2-todo");
+    expect(loaded).toEqual(todo({ id: "v2-todo" }));
+    expect((loaded as { followUp?: boolean } | undefined)?.followUp).toBeUndefined();
+    const exported = await exportData(repo);
+    expect(exported.version).toBe(3);
+    expect(exported.todos[0]).toEqual(todo({ id: "v2-todo" }));
+  });
+
+  test("rejects causedBy that is absent from the snapshot", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(repo, snapshot({ todos: [todo({ id: "child", causedBy: "ghost" })] })),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("rejects causedBy equal to the todo id", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(repo, snapshot({ todos: [todo({ id: "loop", causedBy: "loop" })] })),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("rejects a causedBy cycle", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(
+        repo,
+        snapshot({
+          todos: [todo({ id: "a", causedBy: "b" }), todo({ id: "b", order: 1, causedBy: "a" })],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("accepts a schema version 1 snapshot without causedBy fields", async () => {
     const repo = makeRepo();
     const legacy = todo({ id: "v1-todo" });
 

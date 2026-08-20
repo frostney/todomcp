@@ -1,6 +1,6 @@
 import type { Category, CategoryId, DateString, Todo, TodoId, TodoStatus } from "../domain/model";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export type StoreSnapshot = {
   version: number;
@@ -15,7 +15,7 @@ export type TodoFilter = {
   categoryId?: CategoryId;
   status?: TodoStatus;
   scheduled?: boolean;
-  followUp?: boolean;
+  causedBy?: TodoId;
   includeDeleted?: boolean;
 };
 
