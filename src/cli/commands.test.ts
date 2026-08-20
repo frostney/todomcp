@@ -65,6 +65,34 @@ describe("add", () => {
 
     expect(result.exitCode).toBe(2);
   });
+
+  test("accepts off-slot HH:MM input and stores minute of day in JSON", async () => {
+    const result = await runCli([
+      "add",
+      "Morning check",
+      "--date",
+      TODAY,
+      "--time",
+      "09:07",
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(parseTodo(result.stdout).scheduledTime).toBe(547);
+  });
+
+  test("renders scheduled time as HH:MM in human output", async () => {
+    const result = await runCli(["add", "Morning check", "--date", TODAY, "--time", "09:07"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("09:07");
+  });
+
+  test.each(["540", "24:00", "09:60"])("rejects invalid time %s with exit code 2", async (time) => {
+    const result = await runCli(["add", "Bad time", "--time", time, "--json"]);
+
+    expect(result.exitCode).toBe(2);
+  });
 });
 
 describe("list", () => {
@@ -145,6 +173,15 @@ describe("edit", () => {
     const edited = parseTodo(result.stdout);
     expect(edited.id).toBe(created.id);
     expect(edited.name).toBe("New");
+  });
+
+  test("updates scheduled time from HH:MM input", async () => {
+    const created = await addTodo("Reschedule me");
+
+    const result = await runCli(["edit", created.id, "--time", "23:59", "--json"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(parseTodo(result.stdout).scheduledTime).toBe(1_439);
   });
 });
 
@@ -280,6 +317,25 @@ describe("rollover", () => {
     const exportedPast = snapshot.todos.find((todo) => todo.id === past.id);
     expect(exportedPast?.rolloverCount).toBe(1);
     expect(exportedPast?.rolloverHistory).toHaveLength(1);
+  });
+
+  test("rolls only the given ids", async () => {
+    const first = parseTodo(
+      (await runCli(["add", "First past", "--date", "2026-06-20", "--json"])).stdout,
+    );
+    const second = parseTodo(
+      (await runCli(["add", "Second past", "--date", "2026-06-21", "--json"])).stdout,
+    );
+
+    const result = await runCli(["rollover", first.id, "--json"]);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as { count: number; todos: Todo[] };
+    expect(payload.count).toBe(1);
+    expect(payload.todos.map((todo) => todo.id)).toEqual([first.id]);
+
+    const listed = parseTodos((await runCli(["list", "--json"])).stdout);
+    expect(listed.find((todo) => todo.id === first.id)?.date).toBe(TODAY);
+    expect(listed.find((todo) => todo.id === second.id)?.date).toBe("2026-06-21");
   });
 
   test("returns an empty result when there is nothing to roll", async () => {

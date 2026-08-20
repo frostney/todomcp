@@ -129,6 +129,15 @@ describe("importData", () => {
     expect((await repo.listCategories())[0]).toEqual(restoredCategory);
   });
 
+  test("accepts an off-slot scheduled minute in a snapshot", async () => {
+    const repo = makeRepo();
+    const restoredTodo = todo({ scheduledTime: 547 });
+
+    await importData(repo, snapshot({ todos: [restoredTodo] }));
+
+    expect(await repo.getTodo(restoredTodo.id)).toEqual(restoredTodo);
+  });
+
   test("rejects a payload that is not an object", async () => {
     const repo = makeRepo();
 
@@ -180,7 +189,7 @@ describe("importData", () => {
     const repo = makeRepo();
 
     await expect(
-      importData(repo, snapshot({ todos: [todo({ scheduledTime: 7 })] })),
+      importData(repo, snapshot({ todos: [todo({ scheduledTime: 1_440 })] })),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
@@ -244,6 +253,24 @@ describe("follow-up and rollover transfer", () => {
 
     expect(await repo.getTodo("v1-todo")).toEqual(legacy);
     expect((await exportData(repo)).version).toBe(SCHEMA_VERSION);
+  });
+
+  test("rejects a reversed rolloverHistory date range", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(
+        repo,
+        snapshot({
+          todos: [
+            {
+              ...todo(),
+              rolloverHistory: [{ fromDate: TODAY, toDate: "2026-06-23", rolledOverAt: NOW }],
+            },
+          ],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("rejects a malformed rolloverHistory entry", async () => {

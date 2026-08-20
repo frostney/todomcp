@@ -12,7 +12,7 @@ const attributeFlags = {
     kind: "parsed",
     parse: String,
     optional: true,
-    brief: "Scheduled time (minute of day).",
+    brief: "Scheduled time (HH:MM).",
   },
   duration: {
     kind: "parsed",
@@ -273,11 +273,22 @@ export const followUp = buildCommand<FollowUpFlags, [string], AppContext>({
   },
 });
 
-export const rollover = buildCommand<CommonFlags, [], AppContext>({
-  docs: { brief: "Move unfinished past todos to today and record rollover history." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await withServices(this, flags.data, ({ todos }) => todos.rollover());
+export const rollover = buildCommand<CommonFlags, string[], AppContext>({
+  docs: {
+    brief:
+      "Move unfinished past todos to today and record rollover history. Pass ids to roll only those todos.",
+  },
+  parameters: {
+    flags: commonFlags,
+    positional: {
+      kind: "array",
+      parameter: { parse: String, brief: "Todo id or prefix to roll over.", placeholder: "id" },
+    },
+  },
+  async func(flags, ...ids) {
+    const result = await withServices(this, flags.data, ({ todos }) =>
+      todos.rollover(ids.length > 0 ? ids : undefined),
+    );
     if (flags.json) {
       this.process.stdout.write(formatJson(result));
       return;

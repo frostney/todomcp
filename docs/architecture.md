@@ -79,7 +79,7 @@ date and may also have a scheduled minute-of-day, duration, category, and emoji.
 Every command that returns data supports `--json`. Human output can be pleasant, but machine-readable
 output is part of the product surface, not a debug option. With `--json`, single-record commands
 (`add`, `show`, `done`, `edit`, `move`, `delete`, `follow-up`) print one Todo object; `list` prints a Todo array;
-`rollover` prints `{ date, count, todos }`;
+`rollover` prints `{ date, count, todos }` and accepts optional todo ids to roll only those items;
 the `category` subcommands print a Category object (or, for `category list`, a Category array);
 `export` prints the snapshot object; and `import --json` prints an import summary.
 
@@ -98,7 +98,7 @@ Optional fields are present only when set:
 
 - `categoryId` (string): id of the referenced category.
 - `emoji` (string).
-- `scheduledTime` (number): minute of day (`0`-`1439`, divisible by 15).
+- `scheduledTime` (number): minute of day (`0`-`1439`). CLI input uses 24-hour `HH:MM` format.
 - `duration` (number): one of `15`, `30`, `60`.
 - `completedAt` (string): ISO-8601 timestamp set when the todo is completed.
 - `deletedAt` (string): ISO-8601 timestamp set when the todo is soft-deleted.

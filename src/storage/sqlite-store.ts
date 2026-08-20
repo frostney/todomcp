@@ -69,12 +69,27 @@ const CATEGORY_UPSERT = `INSERT OR REPLACE INTO categories (
   id, name, color, emoji, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?)`;
 
+function isRolloverEntry(value: unknown): value is RolloverEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.fromDate === "string" &&
+    typeof entry.toDate === "string" &&
+    typeof entry.rolledOverAt === "string" &&
+    entry.fromDate < entry.toDate &&
+    entry.fromDate.length > 0 &&
+    entry.toDate.length > 0 &&
+    entry.rolledOverAt.length > 0
+  );
+}
+
 function parseStoredHistory(raw: string | null): RolloverEntry[] | undefined {
   if (raw === null || raw.length === 0) return undefined;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
-    return parsed as RolloverEntry[];
+    if (!parsed.every(isRolloverEntry)) return undefined;
+    return parsed;
   } catch {
     return undefined;
   }

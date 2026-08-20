@@ -594,6 +594,21 @@ CREATE TABLE todos (
     expect(uv).toBe(SCHEMA_VERSION);
   });
 
+  test("drops malformed stored rollover history", async () => {
+    const path = await tempPath("malformed.sqlite");
+    const fileRepo = track(createSqliteRepository({ path }));
+    await fileRepo.putTodo(todo({ id: "raw-history" }));
+    fileRepo.close();
+    openRepos.pop();
+
+    const db = new Database(path);
+    db.run("UPDATE todos SET rollover_history = ? WHERE id = ?", ["[{}]", "raw-history"]);
+    db.close();
+
+    const loaded = track(createSqliteRepository({ path }));
+    expect((await loaded.getTodo("raw-history"))?.rolloverHistory).toBeUndefined();
+  });
+
   test("putTodos writes multiple rows", async () => {
     const repo = makeRepo();
     await repo.putTodos([

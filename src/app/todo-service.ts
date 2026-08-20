@@ -1,7 +1,8 @@
 import type { RolloverEntry, Todo } from "../domain/model";
-import { parseDateString, parseMinuteOfDay, parseTodoDuration } from "../domain/validation";
+import { parseClockTime, parseDateString, parseTodoDuration } from "../domain/validation";
 import type { TodoFilter, TodoRepository } from "../storage/repository";
 import { type Clock, systemClock } from "./clock";
+import { ValidationError } from "./errors";
 import { asValidationError, requireName, resolveByIdentifier } from "./service-support";
 
 export type AddTodoInput = {
@@ -41,14 +42,14 @@ export interface TodoService {
   move(idOrPrefix: string, move: MoveTodoInput): Promise<Todo>;
   remove(idOrPrefix: string): Promise<Todo>;
   setFollowUp(idOrPrefix: string, followUp: boolean): Promise<Todo>;
-  rollover(): Promise<RolloverResult>;
+  rollover(ids?: readonly string[]): Promise<RolloverResult>;
 }
 
 type OptionalTodoFields = Pick<Todo, "categoryId" | "emoji" | "scheduledTime" | "duration">;
 
 function applyOptionalFields(target: Partial<OptionalTodoFields>, input: EditTodoInput): void {
   if (input.scheduledTime !== undefined) {
-    target.scheduledTime = asValidationError(() => parseMinuteOfDay(input.scheduledTime as string));
+    target.scheduledTime = asValidationError(() => parseClockTime(input.scheduledTime as string));
   }
   if (input.duration !== undefined) {
     target.duration = asValidationError(() => parseTodoDuration(input.duration as string));
@@ -164,12 +165,28 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
       return persist({ ...withFollowUp(existing, followUp), updatedAt: clock() });
     },
 
-    async rollover() {
+    async rollover(ids) {
       const timestamp = clock();
       const today = localDateOf(timestamp);
-      const candidates = (await repo.listTodos()).filter(
-        (todo) => todo.status !== "done" && todo.date < today,
-      );
+      const unfinishedPast = (todo: Todo) =>
+        todo.status !== "done" && todo.deletedAt === undefined && todo.date < today;
+
+      let candidates: Todo[];
+      if (ids !== undefined && ids.length > 0) {
+        candidates = [];
+        for (const id of ids) {
+          const todo = await resolve(id);
+          if (!unfinishedPast(todo)) {
+            throw new ValidationError(
+              `Todo ${todo.id} is not an unfinished item dated before ${today}`,
+            );
+          }
+          candidates.push(todo);
+        }
+      } else {
+        candidates = (await repo.listTodos()).filter(unfinishedPast);
+      }
+
       if (candidates.length === 0) {
         return { date: today, count: 0, todos: [] };
       }

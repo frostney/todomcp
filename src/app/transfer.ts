@@ -87,7 +87,7 @@ function parseTodo(raw: unknown): Todo {
   };
 
   if (raw.scheduledTime !== undefined) {
-    todo.scheduledTime = parseMinuteOfDay(String(requireNumber(raw, "scheduledTime")));
+    todo.scheduledTime = parseMinuteOfDay(requireNumber(raw, "scheduledTime"));
   }
   if (raw.duration !== undefined) {
     todo.duration = parseTodoDuration(String(requireNumber(raw, "duration")));
@@ -123,9 +123,14 @@ function parseRolloverHistory(value: unknown): RolloverEntry[] {
   if (!Array.isArray(value)) throw new Error("rolloverHistory must be an array");
   return value.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`rolloverHistory[${index}] must be an object`);
+    const fromDate = parseDateString(requireString(entry, "fromDate"));
+    const toDate = parseDateString(requireString(entry, "toDate"));
+    if (fromDate >= toDate) {
+      throw new Error(`rolloverHistory[${index}] must move to a later date`);
+    }
     return {
-      fromDate: parseDateString(requireString(entry, "fromDate")),
-      toDate: parseDateString(requireString(entry, "toDate")),
+      fromDate,
+      toDate,
       rolledOverAt: requireString(entry, "rolledOverAt"),
     };
   });
