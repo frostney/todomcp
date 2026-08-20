@@ -264,3 +264,135 @@ describe("list validation", () => {
     await expect(service.list({ date: "2026-13-40" })).rejects.toBeInstanceOf(ValidationError);
   });
 });
+
+describe("setFollowUp", () => {
+  test("marks an open todo as a follow-up without changing status", async () => {
+    const { service } = makeService(steppingClock());
+    const created = await service.add(addInput({ name: "Call back" }));
+
+    const marked = await service.setFollowUp(created.id, true);
+
+    expect(marked.status).toBe("open");
+    expect(marked.followUp).toBe(true);
+    expect(marked.updatedAt).not.toBe(created.updatedAt);
+  });
+
+  test("clears the follow-up mark", async () => {
+    const { service } = makeService();
+    const created = await service.add(addInput({ followUp: true }));
+
+    const cleared = await service.setFollowUp(created.id, false);
+
+    expect(cleared.followUp).toBeUndefined();
+    expect(cleared.status).toBe("open");
+  });
+});
+
+describe("rollover", () => {
+  test("moves unfinished past todos to today and records count and history", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "open-yesterday", date: "2026-06-23", status: "open", order: 0 });
+    await seedTodo(repo, {
+      id: "follow-yesterday",
+      date: "2026-06-22",
+      status: "open",
+      order: 0,
+      followUp: true,
+    });
+    await seedTodo(repo, { id: "done-yesterday", date: "2026-06-23", status: "done", order: 1 });
+    await seedTodo(repo, { id: "today-open", date: TODAY, status: "open", order: 0 });
+    await seedTodo(repo, {
+      id: "deleted-yesterday",
+      date: "2026-06-23",
+      status: "open",
+      order: 2,
+      deletedAt: NOW,
+    });
+
+    const result = await service.rollover();
+
+    expect(result.date).toBe(TODAY);
+    expect(result.count).toBe(2);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["follow-yesterday", "open-yesterday"]);
+
+    const follow = await service.get("follow-yesterday");
+    expect(follow.date).toBe(TODAY);
+    expect(follow.followUp).toBe(true);
+    expect(follow.rolloverCount).toBe(1);
+    expect(follow.rolloverHistory).toEqual([
+      { fromDate: "2026-06-22", toDate: TODAY, rolledOverAt: NOW },
+    ]);
+
+    const open = await service.get("open-yesterday");
+    expect(open.date).toBe(TODAY);
+    expect(open.order).toBe(follow.order + 1);
+    expect(open.rolloverCount).toBe(1);
+
+    expect((await service.get("done-yesterday")).date).toBe("2026-06-23");
+    expect((await service.get("today-open")).date).toBe(TODAY);
+    expect((await service.get("deleted-yesterday")).date).toBe("2026-06-23");
+  });
+
+  test("is a no-op when nothing is unfinished and past", async () => {
+    const { service } = makeService();
+    await service.add(addInput({ date: TODAY }));
+
+    const result = await service.rollover();
+
+    expect(result).toEqual({ date: TODAY, count: 0, todos: [] });
+  });
+
+  test("appends another history entry on a later day", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, {
+      id: "stale",
+      date: "2026-06-20",
+      status: "open",
+      order: 0,
+      rolloverCount: 1,
+      rolloverHistory: [
+        { fromDate: "2026-06-19", toDate: "2026-06-20", rolledOverAt: "2026-06-20T09:00:00.000Z" },
+      ],
+    });
+
+    const result = await service.rollover();
+
+    expect(result.todos[0]?.rolloverCount).toBe(2);
+    expect(result.todos[0]?.rolloverHistory).toHaveLength(2);
+    expect(result.todos[0]?.rolloverHistory?.[1]).toEqual({
+      fromDate: "2026-06-20",
+      toDate: TODAY,
+      rolledOverAt: NOW,
+    });
+  });
+  test("rolls only the specified unfinished past todos", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "keep-yesterday", date: "2026-06-23", status: "open", order: 0 });
+    await seedTodo(repo, { id: "roll-yesterday", date: "2026-06-22", status: "open", order: 0 });
+
+    const result = await service.rollover(["roll-yesterday"]);
+
+    expect(result.count).toBe(1);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["roll-yesterday"]);
+    expect((await service.get("roll-yesterday")).date).toBe(TODAY);
+    expect((await service.get("keep-yesterday")).date).toBe("2026-06-23");
+  });
+
+  test("rejects a specified todo that is not unfinished and past", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "today-open", date: TODAY, status: "open", order: 0 });
+
+    await expect(service.rollover(["today-open"])).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("rejects a duplicate specified identifier", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "yesterday-open", date: "2026-06-23", status: "open", order: 0 });
+
+    await expect(service.rollover(["yesterday-open", "yesterday-open"])).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect((await service.get("yesterday-open")).date).toBe("2026-06-23");
+    expect((await service.get("yesterday-open")).rolloverCount).toBeUndefined();
+  });
+});

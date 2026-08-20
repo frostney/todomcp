@@ -1,7 +1,8 @@
-import type { Todo } from "../domain/model";
+import type { RolloverEntry, Todo } from "../domain/model";
 import { parseClockTime, parseDateString, parseTodoDuration } from "../domain/validation";
 import type { TodoFilter, TodoRepository } from "../storage/repository";
 import { type Clock, systemClock } from "./clock";
+import { ValidationError } from "./errors";
 import { asValidationError, requireName, resolveByIdentifier } from "./service-support";
 
 export type AddTodoInput = {
@@ -11,6 +12,7 @@ export type AddTodoInput = {
   duration?: string;
   categoryId?: string;
   emoji?: string;
+  followUp?: boolean;
 };
 
 export type EditTodoInput = {
@@ -25,6 +27,12 @@ export type MoveTodoInput = {
   date: string;
 };
 
+export type RolloverResult = {
+  date: string;
+  count: number;
+  todos: Todo[];
+};
+
 export interface TodoService {
   add(input: AddTodoInput): Promise<Todo>;
   list(filter?: TodoFilter): Promise<Todo[]>;
@@ -33,6 +41,8 @@ export interface TodoService {
   edit(idOrPrefix: string, changes: EditTodoInput): Promise<Todo>;
   move(idOrPrefix: string, move: MoveTodoInput): Promise<Todo>;
   remove(idOrPrefix: string): Promise<Todo>;
+  setFollowUp(idOrPrefix: string, followUp: boolean): Promise<Todo>;
+  rollover(ids?: readonly string[]): Promise<RolloverResult>;
 }
 
 type OptionalTodoFields = Pick<Todo, "categoryId" | "emoji" | "scheduledTime" | "duration">;
@@ -58,6 +68,40 @@ function localDateOf(iso: string): string {
   const month = String(at.getMonth() + 1).padStart(2, "0");
   const day = String(at.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function withFollowUp(todo: Todo, followUp: boolean): Todo {
+  const { followUp: _ignored, ...rest } = todo;
+  return followUp ? { ...rest, followUp: true } : rest;
+}
+
+async function resolveRolloverCandidates(
+  ids: readonly string[] | undefined,
+  today: string,
+  resolve: (idOrPrefix: string) => Promise<Todo>,
+  listTodos: () => Promise<Todo[]>,
+): Promise<Todo[]> {
+  const unfinishedPast = (todo: Todo) =>
+    todo.status !== "done" && todo.deletedAt === undefined && todo.date < today;
+
+  if (ids === undefined || ids.length === 0) {
+    return (await listTodos()).filter(unfinishedPast);
+  }
+
+  const candidates: Todo[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const todo = await resolve(id);
+    if (!unfinishedPast(todo)) {
+      throw new ValidationError(`Todo ${todo.id} is not an unfinished item dated before ${today}`);
+    }
+    if (seen.has(todo.id)) {
+      throw new ValidationError(`Todo ${todo.id} was specified more than once`);
+    }
+    seen.add(todo.id);
+    candidates.push(todo);
+  }
+  return candidates;
 }
 
 export function createTodoService(repo: TodoRepository, clock: Clock = systemClock): TodoService {
@@ -102,6 +146,7 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
         updatedAt: timestamp,
       };
       applyOptionalFields(todo, input);
+      if (input.followUp === true) todo.followUp = true;
       return persist(todo);
     },
 
@@ -142,6 +187,43 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
       const existing = await resolve(idOrPrefix);
       const timestamp = clock();
       return persist({ ...existing, deletedAt: timestamp, updatedAt: timestamp });
+    },
+
+    async setFollowUp(idOrPrefix, followUp) {
+      const existing = await resolve(idOrPrefix);
+      return persist({ ...withFollowUp(existing, followUp), updatedAt: clock() });
+    },
+
+    async rollover(ids) {
+      const timestamp = clock();
+      const today = localDateOf(timestamp);
+      const candidates = await resolveRolloverCandidates(ids, today, resolve, () =>
+        repo.listTodos(),
+      );
+
+      if (candidates.length === 0) {
+        return { date: today, count: 0, todos: [] };
+      }
+
+      let order = await nextOrder(today);
+      const rolled: Todo[] = candidates.map((todo) => {
+        const entry: RolloverEntry = {
+          fromDate: todo.date,
+          toDate: today,
+          rolledOverAt: timestamp,
+        };
+        const history = [...(todo.rolloverHistory ?? []), entry];
+        return {
+          ...todo,
+          date: today,
+          order: order++,
+          rolloverCount: (todo.rolloverCount ?? 0) + 1,
+          rolloverHistory: history,
+          updatedAt: timestamp,
+        };
+      });
+      await repo.putTodos(rolled);
+      return { date: today, count: rolled.length, todos: rolled };
     },
   };
 }

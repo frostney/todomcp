@@ -226,3 +226,68 @@ describe("importData", () => {
     );
   });
 });
+
+describe("follow-up and rollover transfer", () => {
+  test("round-trips followUp, rolloverCount, and rolloverHistory", async () => {
+    const repo = makeRepo();
+    const restored = todo({
+      id: "rolled",
+      followUp: true,
+      rolloverCount: 1,
+      rolloverHistory: [
+        { fromDate: "2026-06-23", toDate: TODAY, rolledOverAt: "2026-06-24T08:00:00.000Z" },
+      ],
+    });
+
+    await importData(repo, snapshot({ todos: [restored] }));
+
+    expect(await repo.getTodo("rolled")).toEqual(restored);
+    expect((await exportData(repo)).todos[0]).toEqual(restored);
+  });
+
+  test("accepts a schema version 1 snapshot without follow-up fields", async () => {
+    const repo = makeRepo();
+    const legacy = todo({ id: "v1-todo" });
+
+    await importData(repo, snapshot({ version: 1, todos: [legacy] }));
+
+    expect(await repo.getTodo("v1-todo")).toEqual(legacy);
+    expect((await exportData(repo)).version).toBe(SCHEMA_VERSION);
+  });
+
+  test("rejects a reversed rolloverHistory date range", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(
+        repo,
+        snapshot({
+          todos: [
+            {
+              ...todo(),
+              rolloverHistory: [{ fromDate: TODAY, toDate: "2026-06-23", rolledOverAt: NOW }],
+            },
+          ],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("rejects a malformed rolloverHistory entry", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(
+        repo,
+        snapshot({
+          todos: [
+            {
+              ...todo(),
+              rolloverHistory: [{ fromDate: "nope", toDate: TODAY, rolledOverAt: NOW }],
+            },
+          ],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+});

@@ -10,6 +10,12 @@ export type CategoryId = string;
 
 export type MinuteOfDay = number;
 
+export type RolloverEntry = {
+  fromDate: DateString;
+  toDate: DateString;
+  rolledOverAt: string;
+};
+
 export type Todo = {
   id: TodoId;
   name: string;
@@ -24,6 +30,9 @@ export type Todo = {
   duration?: TodoDuration;
   completedAt?: string;
   deletedAt?: string;
+  followUp?: boolean;
+  rolloverCount?: number;
+  rolloverHistory?: RolloverEntry[];
 };
 
 export type Category = {

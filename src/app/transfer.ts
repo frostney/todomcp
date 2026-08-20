@@ -1,4 +1,4 @@
-import type { Category, Todo, TodoStatus } from "../domain/model";
+import type { Category, RolloverEntry, Todo, TodoStatus } from "../domain/model";
 import { parseDateString, parseMinuteOfDay, parseTodoDuration } from "../domain/validation";
 import { SCHEMA_VERSION, type StoreSnapshot, type TodoRepository } from "../storage/repository";
 import { ValidationError } from "./errors";
@@ -85,7 +85,12 @@ function parseTodo(raw: unknown): Todo {
     createdAt: requireString(raw, "createdAt"),
     updatedAt: requireString(raw, "updatedAt"),
   };
+  applyOptionalTodoFields(todo, raw);
+  applyFollowUpAndRollover(todo, raw);
+  return todo;
+}
 
+function applyOptionalTodoFields(todo: Todo, raw: Record<string, unknown>): void {
   if (raw.scheduledTime !== undefined) {
     todo.scheduledTime = parseMinuteOfDay(requireNumber(raw, "scheduledTime"));
   }
@@ -100,8 +105,49 @@ function parseTodo(raw: unknown): Todo {
   if (completedAt !== undefined) todo.completedAt = completedAt;
   const deletedAt = optionalString(raw, "deletedAt");
   if (deletedAt !== undefined) todo.deletedAt = deletedAt;
+}
 
-  return todo;
+function applyFollowUpAndRollover(todo: Todo, raw: Record<string, unknown>): void {
+  applyFollowUp(todo, raw);
+  applyRolloverMetadata(todo, raw);
+}
+
+function applyFollowUp(todo: Todo, raw: Record<string, unknown>): void {
+  if (raw.followUp === true) todo.followUp = true;
+  else if (raw.followUp !== undefined && raw.followUp !== false) {
+    throw new Error("followUp must be a boolean");
+  }
+}
+
+function applyRolloverMetadata(todo: Todo, raw: Record<string, unknown>): void {
+  if (raw.rolloverCount !== undefined) {
+    const count = requireNumber(raw, "rolloverCount");
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error("rolloverCount must be a non-negative integer");
+    }
+    if (count > 0) todo.rolloverCount = count;
+  }
+  if (raw.rolloverHistory !== undefined) {
+    const history = parseRolloverHistory(raw.rolloverHistory);
+    if (history.length > 0) todo.rolloverHistory = history;
+  }
+}
+
+function parseRolloverHistory(value: unknown): RolloverEntry[] {
+  if (!Array.isArray(value)) throw new Error("rolloverHistory must be an array");
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) throw new Error(`rolloverHistory[${index}] must be an object`);
+    const fromDate = parseDateString(requireString(entry, "fromDate"));
+    const toDate = parseDateString(requireString(entry, "toDate"));
+    if (fromDate >= toDate) {
+      throw new Error(`rolloverHistory[${index}] must move to a later date`);
+    }
+    return {
+      fromDate,
+      toDate,
+      rolledOverAt: requireString(entry, "rolledOverAt"),
+    };
+  });
 }
 
 function parseStatus(value: unknown): TodoStatus {

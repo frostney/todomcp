@@ -238,3 +238,111 @@ describe("end-to-end lifecycle", () => {
     expect(parseTodos(finalList.stdout).map((t) => t.id)).not.toContain(created.id);
   });
 });
+
+describe("follow-up", () => {
+  test("marks, lists, shows, and clears a follow-up", async () => {
+    const created = await addTodo("Call them back");
+
+    const marked = await runCli(["follow-up", created.id, "--json"]);
+    expect(marked.exitCode).toBe(0);
+    expect(parseTodo(marked.stdout).followUp).toBe(true);
+    expect(parseTodo(marked.stdout).status).toBe("open");
+
+    const listed = await runCli(["list", "--follow-up", "--json"]);
+    expect(listed.exitCode).toBe(0);
+    expect(parseTodos(listed.stdout).map((todo) => todo.id)).toEqual([created.id]);
+
+    const shown = await runCli(["show", created.id, "--json"]);
+    expect(parseTodo(shown.stdout).followUp).toBe(true);
+
+    const cleared = await runCli(["follow-up", created.id, "--clear", "--json"]);
+    expect(cleared.exitCode).toBe(0);
+    expect(parseTodo(cleared.stdout).followUp).toBeUndefined();
+  });
+
+  test("add --follow-up creates a marked todo", async () => {
+    const result = await runCli(["add", "Follow this", "--date", TODAY, "--follow-up", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(parseTodo(result.stdout).followUp).toBe(true);
+  });
+});
+
+describe("rollover", () => {
+  test("moves unfinished past todos to today and exposes count and history", async () => {
+    const pastResult = await runCli(["add", "Old open", "--date", "2026-06-20", "--json"]);
+    expect(pastResult.exitCode).toBe(0);
+    const past = parseTodo(pastResult.stdout);
+    const flaggedResult = await runCli([
+      "add",
+      "Old follow-up",
+      "--date",
+      "2026-06-21",
+      "--follow-up",
+      "--json",
+    ]);
+    expect(flaggedResult.exitCode).toBe(0);
+    const flagged = parseTodo(flaggedResult.stdout);
+    const finishedResult = await runCli(["add", "Old done", "--date", "2026-06-20", "--json"]);
+    expect(finishedResult.exitCode).toBe(0);
+    const finished = parseTodo(finishedResult.stdout);
+    expect((await runCli(["done", finished.id, "--json"])).exitCode).toBe(0);
+    const today = await addTodo("Already today");
+
+    const result = await runCli(["rollover", "--json"]);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      date: string;
+      count: number;
+      todos: Todo[];
+    };
+    expect(payload.date).toBe(TODAY);
+    expect(payload.count).toBe(2);
+    expect(payload.todos.map((todo) => todo.id).sort()).toEqual([flagged.id, past.id].sort());
+    expect(payload.todos.every((todo) => todo.date === TODAY)).toBe(true);
+    expect(payload.todos.every((todo) => todo.rolloverCount === 1)).toBe(true);
+    expect(payload.todos.find((todo) => todo.id === flagged.id)?.followUp).toBe(true);
+    expect(payload.todos[0]?.rolloverHistory?.[0]).toMatchObject({
+      toDate: TODAY,
+      rolledOverAt: expect.any(String),
+    });
+
+    const listed = await runCli(["list", "--date", TODAY, "--json"]);
+    const todayIds = parseTodos(listed.stdout).map((todo) => todo.id);
+    expect(todayIds).toEqual(expect.arrayContaining([past.id, flagged.id, today.id]));
+    expect(todayIds).not.toContain(finished.id);
+
+    const exported = await runCli(["export", "--json"]);
+    expect(exported.exitCode).toBe(0);
+    const snapshot = JSON.parse(exported.stdout) as { todos: Todo[] };
+    const exportedPast = snapshot.todos.find((todo) => todo.id === past.id);
+    expect(exportedPast?.rolloverCount).toBe(1);
+    expect(exportedPast?.rolloverHistory).toHaveLength(1);
+  });
+
+  test("rolls only the given ids", async () => {
+    const first = parseTodo(
+      (await runCli(["add", "First past", "--date", "2026-06-20", "--json"])).stdout,
+    );
+    const second = parseTodo(
+      (await runCli(["add", "Second past", "--date", "2026-06-21", "--json"])).stdout,
+    );
+
+    const result = await runCli(["rollover", first.id, "--json"]);
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as { count: number; todos: Todo[] };
+    expect(payload.count).toBe(1);
+    expect(payload.todos.map((todo) => todo.id)).toEqual([first.id]);
+
+    const listed = parseTodos((await runCli(["list", "--json"])).stdout);
+    expect(listed.find((todo) => todo.id === first.id)?.date).toBe(TODAY);
+    expect(listed.find((todo) => todo.id === second.id)?.date).toBe("2026-06-21");
+  });
+
+  test("returns an empty result when there is nothing to roll", async () => {
+    await addTodo("Only today");
+
+    const result = await runCli(["rollover", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ date: TODAY, count: 0, todos: [] });
+  });
+});

@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Category, CategoryId, Todo, TodoId } from "../domain/model";
+import type { Category, CategoryId, RolloverEntry, Todo, TodoId } from "../domain/model";
+import { parseDateString } from "../domain/validation";
 import { resolveTodoDataPath } from "./data-path";
 import {
   type DeleteCategoryOptions,
@@ -24,7 +25,8 @@ CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
   "order" INTEGER NOT NULL, category_id TEXT, emoji TEXT, scheduled_time INTEGER,
   duration INTEGER, completed_at TEXT, deleted_at TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  follow_up INTEGER NOT NULL DEFAULT 0, rollover_count INTEGER NOT NULL DEFAULT 0,
+  rollover_history TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_todos_date_status ON todos (date, status);
 CREATE INDEX IF NOT EXISTS idx_todos_category ON todos (category_id);
@@ -42,6 +44,9 @@ type TodoRow = {
   duration: number | null;
   completed_at: string | null;
   deleted_at: string | null;
+  follow_up: number;
+  rollover_count: number;
+  rollover_history: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -57,12 +62,45 @@ type CategoryRow = {
 
 const TODO_UPSERT = `INSERT OR REPLACE INTO todos (
   id, name, date, status, "order", category_id, emoji, scheduled_time,
-  duration, completed_at, deleted_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  duration, completed_at, deleted_at, follow_up, rollover_count, rollover_history,
+  created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 const CATEGORY_UPSERT = `INSERT OR REPLACE INTO categories (
   id, name, color, emoji, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?)`;
+
+function isRolloverEntry(value: unknown): value is RolloverEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  if (
+    typeof entry.fromDate !== "string" ||
+    typeof entry.toDate !== "string" ||
+    typeof entry.rolledOverAt !== "string" ||
+    entry.rolledOverAt.length === 0
+  ) {
+    return false;
+  }
+  try {
+    const fromDate = parseDateString(entry.fromDate);
+    const toDate = parseDateString(entry.toDate);
+    return fromDate < toDate;
+  } catch {
+    return false;
+  }
+}
+
+function parseStoredHistory(raw: string | null): RolloverEntry[] | undefined {
+  if (raw === null || raw.length === 0) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+    if (!parsed.every(isRolloverEntry)) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
 
 function mapTodoRow(row: TodoRow): Todo {
   const todo: Todo = {
@@ -74,13 +112,27 @@ function mapTodoRow(row: TodoRow): Todo {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  applyOptionalRowFields(todo, row);
+  applyStoredFollowUpAndRollover(todo, row);
+  return todo;
+}
+
+function applyOptionalRowFields(todo: Todo, row: TodoRow): void {
   if (row.category_id !== null) todo.categoryId = row.category_id;
   if (row.emoji !== null) todo.emoji = row.emoji;
   if (row.scheduled_time !== null) todo.scheduledTime = row.scheduled_time;
   if (row.duration !== null) todo.duration = row.duration as NonNullable<Todo["duration"]>;
   if (row.completed_at !== null) todo.completedAt = row.completed_at;
   if (row.deleted_at !== null) todo.deletedAt = row.deleted_at;
-  return todo;
+}
+
+function applyStoredFollowUpAndRollover(todo: Todo, row: TodoRow): void {
+  if (row.follow_up === 1) todo.followUp = true;
+  if (Number.isInteger(row.rollover_count) && row.rollover_count > 0) {
+    todo.rolloverCount = row.rollover_count;
+  }
+  const history = parseStoredHistory(row.rollover_history);
+  if (history !== undefined) todo.rolloverHistory = history;
 }
 
 function mapCategoryRow(row: CategoryRow): Category {
@@ -95,6 +147,16 @@ function mapCategoryRow(row: CategoryRow): Category {
   return category;
 }
 
+function nullable<T>(value: T | undefined): T | null {
+  return value === undefined ? null : value;
+}
+
+function storedRolloverHistory(todo: Todo): string | null {
+  return todo.rolloverHistory !== undefined && todo.rolloverHistory.length > 0
+    ? JSON.stringify(todo.rolloverHistory)
+    : null;
+}
+
 function todoParams(todo: Todo): Array<string | number | null> {
   return [
     todo.id,
@@ -102,12 +164,15 @@ function todoParams(todo: Todo): Array<string | number | null> {
     todo.date,
     todo.status,
     todo.order,
-    todo.categoryId ?? null,
-    todo.emoji ?? null,
-    todo.scheduledTime ?? null,
-    todo.duration ?? null,
-    todo.completedAt ?? null,
-    todo.deletedAt ?? null,
+    nullable(todo.categoryId),
+    nullable(todo.emoji),
+    nullable(todo.scheduledTime),
+    nullable(todo.duration),
+    nullable(todo.completedAt),
+    nullable(todo.deletedAt),
+    todo.followUp === true ? 1 : 0,
+    todo.rolloverCount ?? 0,
+    storedRolloverHistory(todo),
     todo.createdAt,
     todo.updatedAt,
   ];
@@ -147,10 +212,42 @@ function buildTodoWhere(filter: TodoFilter = {}): {
 
   if (filter.scheduled === true) conditions.push("scheduled_time IS NOT NULL");
   else if (filter.scheduled === false) conditions.push("scheduled_time IS NULL");
+  if (filter.followUp === true) conditions.push("follow_up = 1");
+  else if (filter.followUp === false) conditions.push("follow_up = 0");
   if (filter.includeDeleted !== true) conditions.push("deleted_at IS NULL");
 
   const clause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
   return { clause, params };
+}
+
+function todoColumnNames(db: Database): Set<string> {
+  return new Set(
+    (db.query("PRAGMA table_info(todos)").all() as Array<{ name: string }>).map((col) => col.name),
+  );
+}
+
+function migrateSchema(db: Database, path: string): void {
+  const uv = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (uv > SCHEMA_VERSION) throw new StoreVersionError(path, uv);
+
+  db.run(SCHEMA_DDL);
+
+  if (uv > 0 && uv < 2) {
+    const columns = todoColumnNames(db);
+    if (!columns.has("follow_up")) {
+      db.run("ALTER TABLE todos ADD COLUMN follow_up INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.has("rollover_count")) {
+      db.run("ALTER TABLE todos ADD COLUMN rollover_count INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.has("rollover_history")) {
+      db.run("ALTER TABLE todos ADD COLUMN rollover_history TEXT");
+    }
+  }
+
+  if (uv < SCHEMA_VERSION) {
+    db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
 }
 
 const TODO_ORDER_BY = ` ORDER BY date ASC, "order" ASC, id ASC`;
@@ -164,10 +261,9 @@ export function createSqliteRepository(options?: RepositoryOptions): TodoReposit
   }
   const db = new Database(path, { create: true });
   try {
-    const uv = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-    if (uv > SCHEMA_VERSION) throw new StoreVersionError(path, uv);
-    db.run(SCHEMA_DDL);
-    if (uv === 0) db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    db.transaction(() => {
+      migrateSchema(db, path);
+    })();
   } catch (error) {
     db.close();
     if (error instanceof StoreVersionError) throw error;
@@ -176,6 +272,11 @@ export function createSqliteRepository(options?: RepositoryOptions): TodoReposit
 
   const todoUpsert = db.query(TODO_UPSERT);
   const categoryUpsert = db.query(CATEGORY_UPSERT);
+  const putTodosTransaction = db.transaction((todos: readonly Todo[]) => {
+    for (const todo of todos) {
+      todoUpsert.run(...todoParams(todo));
+    }
+  });
   const unassignTodosByCategory = db.query(
     "UPDATE todos SET category_id = NULL, updated_at = ? WHERE category_id = ?",
   );
@@ -213,6 +314,10 @@ export function createSqliteRepository(options?: RepositoryOptions): TodoReposit
 
     async putTodo(todo: Todo): Promise<void> {
       todoUpsert.run(...todoParams(todo));
+    },
+
+    async putTodos(todos: readonly Todo[]): Promise<void> {
+      putTodosTransaction(todos);
     },
 
     async listCategories(): Promise<Category[]> {

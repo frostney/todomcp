@@ -40,6 +40,8 @@ function displayRow(todo: Todo): Record<string, unknown> {
     time: formatTime(todo.scheduledTime),
     dur: todo.duration ?? "-",
     status: todo.status,
+    fu: todo.followUp === true ? "yes" : "-",
+    rolls: todo.rolloverCount ?? "-",
     category: todo.categoryId?.slice(0, 8) ?? "-",
     emoji: todo.emoji ?? "-",
     name: todo.name,
@@ -72,6 +74,7 @@ type AddFlags = CommonFlags & {
   duration?: string;
   category?: string;
   emoji?: string;
+  followUp?: boolean;
 };
 
 export const add = buildCommand<AddFlags, [string], AppContext>({
@@ -80,6 +83,7 @@ export const add = buildCommand<AddFlags, [string], AppContext>({
     flags: {
       ...commonFlags,
       date: { kind: "parsed", parse: String, optional: true, brief: "Due date (YYYY-MM-DD)." },
+      followUp: { kind: "boolean", optional: true, brief: "Mark the todo as a follow-up." },
       ...attributeFlags,
     },
     positional: {
@@ -93,6 +97,7 @@ export const add = buildCommand<AddFlags, [string], AppContext>({
     if (flags.time !== undefined) input.scheduledTime = flags.time;
     if (flags.duration !== undefined) input.duration = flags.duration;
     if (flags.emoji !== undefined) input.emoji = flags.emoji;
+    if (flags.followUp === true) input.followUp = true;
     const todo = await withServices(this, flags.data, async ({ todos, categories }) => {
       if (flags.category !== undefined)
         input.categoryId = await categories.resolveId(flags.category);
@@ -110,6 +115,7 @@ type ListFlags = CommonFlags & {
   status?: "open" | "done";
   scheduled?: boolean;
   unscheduled?: boolean;
+  followUp?: boolean;
   includeDeleted?: boolean;
 };
 
@@ -140,6 +146,7 @@ export const list = buildCommand<ListFlags, [], AppContext>({
       },
       scheduled: { kind: "boolean", optional: true, brief: "Only scheduled todos." },
       unscheduled: { kind: "boolean", optional: true, brief: "Only unscheduled todos." },
+      followUp: { kind: "boolean", optional: true, brief: "Only follow-up todos." },
       includeDeleted: { kind: "boolean", optional: true, brief: "Include deleted todos." },
     },
   },
@@ -151,6 +158,7 @@ export const list = buildCommand<ListFlags, [], AppContext>({
     if (flags.status !== undefined) filter.status = flags.status;
     const scheduled = resolveScheduledFilter(flags.scheduled, flags.unscheduled);
     if (scheduled !== undefined) filter.scheduled = scheduled;
+    if (flags.followUp) filter.followUp = true;
     if (flags.includeDeleted) filter.includeDeleted = true;
     const todos = await withServices(this, flags.data, async ({ todos, categories }) => {
       if (flags.category !== undefined)
@@ -241,5 +249,55 @@ export const move = buildCommand<CommonFlags, [string, string], AppContext>({
   async func(flags, id, date) {
     const todo = await withServices(this, flags.data, ({ todos }) => todos.move(id, { date }));
     this.process.stdout.write(renderTodo(todo, flags.json));
+  },
+});
+
+type FollowUpFlags = CommonFlags & {
+  clear?: boolean;
+};
+
+export const followUp = buildCommand<FollowUpFlags, [string], AppContext>({
+  docs: { brief: "Mark a todo as a follow-up, or clear the mark with --clear." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      clear: { kind: "boolean", optional: true, brief: "Remove the follow-up mark." },
+    },
+    positional: idPositional,
+  },
+  async func(flags, id) {
+    const todo = await withServices(this, flags.data, ({ todos }) =>
+      todos.setFollowUp(id, flags.clear !== true),
+    );
+    this.process.stdout.write(renderTodo(todo, flags.json));
+  },
+});
+
+export const rollover = buildCommand<CommonFlags, string[], AppContext>({
+  docs: {
+    brief:
+      "Move unfinished past todos to today and record rollover history. Pass ids to roll only those todos.",
+  },
+  parameters: {
+    flags: commonFlags,
+    positional: {
+      kind: "array",
+      parameter: { parse: String, brief: "Todo id or prefix to roll over.", placeholder: "id" },
+    },
+  },
+  async func(flags, ...ids) {
+    const result = await withServices(this, flags.data, ({ todos }) =>
+      todos.rollover(ids.length > 0 ? ids : undefined),
+    );
+    if (flags.json) {
+      this.process.stdout.write(formatJson(result));
+      return;
+    }
+    if (result.count === 0) {
+      this.process.stdout.write(`No unfinished todos before ${result.date}.\n`);
+      return;
+    }
+    this.process.stdout.write(`Rolled ${result.count} todo(s) to ${result.date}.\n`);
+    this.process.stdout.write(formatTable(result.todos.map(displayRow)));
   },
 });
