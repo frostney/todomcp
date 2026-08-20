@@ -58,7 +58,7 @@ describe("add", () => {
     const todo = await service.add(
       addInput({
         date: "2026-07-01",
-        scheduledTime: "540",
+        scheduledTime: "09:07",
         duration: "30",
         categoryId: "cat-work",
         emoji: "🚀",
@@ -66,7 +66,7 @@ describe("add", () => {
     );
 
     expect(todo.date).toBe("2026-07-01");
-    expect(todo.scheduledTime).toBe(540);
+    expect(todo.scheduledTime).toBe(547);
     expect(todo.duration).toBe(30);
     expect(todo.categoryId).toBe("cat-work");
     expect(todo.emoji).toBe("🚀");
@@ -95,7 +95,7 @@ describe("add", () => {
   test("rejects an invalid time", async () => {
     const { service } = makeService();
 
-    await expect(service.add(addInput({ scheduledTime: "7" }))).rejects.toBeInstanceOf(
+    await expect(service.add(addInput({ scheduledTime: "540" }))).rejects.toBeInstanceOf(
       ValidationError,
     );
   });
@@ -202,11 +202,20 @@ describe("edit", () => {
     expect(edited.updatedAt).not.toBe(created.updatedAt);
   });
 
+  test("updates scheduled time from off-slot HH:MM input", async () => {
+    const { service } = makeService();
+    const created = await service.add(addInput());
+
+    const edited = await service.edit(created.id, { scheduledTime: "23:59" });
+
+    expect(edited.scheduledTime).toBe(1_439);
+  });
+
   test("rejects an invalid time", async () => {
     const { service } = makeService();
     const created = await service.add(addInput());
 
-    await expect(service.edit(created.id, { scheduledTime: "13" })).rejects.toBeInstanceOf(
+    await expect(service.edit(created.id, { scheduledTime: "09:60" })).rejects.toBeInstanceOf(
       ValidationError,
     );
   });

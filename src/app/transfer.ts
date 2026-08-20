@@ -87,7 +87,7 @@ function parseTodo(raw: unknown): Todo {
   };
 
   if (raw.scheduledTime !== undefined) {
-    todo.scheduledTime = parseMinuteOfDay(String(requireNumber(raw, "scheduledTime")));
+    todo.scheduledTime = parseMinuteOfDay(requireNumber(raw, "scheduledTime"));
   }
   if (raw.duration !== undefined) {
     todo.duration = parseTodoDuration(String(requireNumber(raw, "duration")));

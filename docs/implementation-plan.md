@@ -24,7 +24,7 @@ PlanStack's source-backed todo model.
   workflows.
 - Todos are date-centric, following the PlanStack shape:
   - `date` is a required `YYYY-MM-DD` anchor.
-  - `scheduledTime` is optional minutes from midnight, snapped to 15-minute slots.
+  - `scheduledTime` is optional minutes from midnight, with any minute of the day allowed.
   - `duration` is optional and starts with PlanStack-compatible `15 | 30 | 60` minute values.
   - `categoryId` is optional.
   - `emoji` is optional.

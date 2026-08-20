@@ -65,6 +65,34 @@ describe("add", () => {
 
     expect(result.exitCode).toBe(2);
   });
+
+  test("accepts off-slot HH:MM input and stores minute of day in JSON", async () => {
+    const result = await runCli([
+      "add",
+      "Morning check",
+      "--date",
+      TODAY,
+      "--time",
+      "09:07",
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(parseTodo(result.stdout).scheduledTime).toBe(547);
+  });
+
+  test("renders scheduled time as HH:MM in human output", async () => {
+    const result = await runCli(["add", "Morning check", "--date", TODAY, "--time", "09:07"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("09:07");
+  });
+
+  test.each(["540", "24:00", "09:60"])("rejects invalid time %s with exit code 2", async (time) => {
+    const result = await runCli(["add", "Bad time", "--time", time, "--json"]);
+
+    expect(result.exitCode).toBe(2);
+  });
 });
 
 describe("list", () => {
@@ -145,6 +173,15 @@ describe("edit", () => {
     const edited = parseTodo(result.stdout);
     expect(edited.id).toBe(created.id);
     expect(edited.name).toBe("New");
+  });
+
+  test("updates scheduled time from HH:MM input", async () => {
+    const created = await addTodo("Reschedule me");
+
+    const result = await runCli(["edit", created.id, "--time", "23:59", "--json"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(parseTodo(result.stdout).scheduledTime).toBe(1_439);
   });
 });
 

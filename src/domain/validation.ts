@@ -1,8 +1,8 @@
 import type { DateString, MinuteOfDay, TodoDuration } from "./model";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const CLOCK_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const MINUTES_PER_DAY = 1_440;
-const SLOT_GRANULARITY = 15;
 const VALID_DURATIONS: readonly TodoDuration[] = [15, 30, 60];
 
 export function parseDateString(value: string): DateString {
@@ -23,17 +23,22 @@ export function parseDateString(value: string): DateString {
   return value;
 }
 
-export function parseMinuteOfDay(value: string): MinuteOfDay {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= MINUTES_PER_DAY) {
+export function parseMinuteOfDay(value: number): MinuteOfDay {
+  if (!Number.isInteger(value) || value < 0 || value >= MINUTES_PER_DAY) {
     throw new Error(`Time must be an integer 0-${MINUTES_PER_DAY - 1}, got: ${value}`);
   }
 
-  if (parsed % SLOT_GRANULARITY !== 0) {
-    throw new Error(`Time must be divisible by ${SLOT_GRANULARITY}, got: ${value}`);
+  return value;
+}
+
+export function parseClockTime(value: string): MinuteOfDay {
+  if (!CLOCK_TIME_PATTERN.test(value)) {
+    throw new Error(`Time must be in 24-hour HH:MM format, got: ${value}`);
   }
 
-  return parsed;
+  const hours = Number(value.slice(0, 2));
+  const minutes = Number(value.slice(3, 5));
+  return parseMinuteOfDay(hours * 60 + minutes);
 }
 
 export function parseTodoDuration(value: string): TodoDuration {

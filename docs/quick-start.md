@@ -81,14 +81,14 @@ argument may be given as a unique id prefix, and any `<idOrName>` argument resol
 exact id or exact (unique) name.
 
 ```text
-todorepl add <name> [--date YYYY-MM-DD] [--time minutes] [--duration min]
+todorepl add <name> [--date YYYY-MM-DD] [--time HH:MM] [--duration min]
                     [--category name] [--emoji char] [--data path] [--json]
 todorepl list [--date YYYY-MM-DD] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
               [--category name] [--status open|done] [--scheduled] [--unscheduled]
               [--include-deleted] [--data path] [--json]
 todorepl show <id> [--data path] [--json]
 todorepl done <id> [--data path] [--json]
-todorepl edit <id> [--name text] [--time minutes] [--duration min]
+todorepl edit <id> [--name text] [--time HH:MM] [--duration min]
                    [--category name] [--emoji char] [--data path] [--json]
 todorepl move <id> <date> [--data path] [--json]
 todorepl delete <id> [--data path] [--json]

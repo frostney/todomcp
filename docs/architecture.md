@@ -96,7 +96,7 @@ Optional fields are present only when set:
 
 - `categoryId` (string): id of the referenced category.
 - `emoji` (string).
-- `scheduledTime` (number): minute of day (`0`-`1439`, divisible by 15).
+- `scheduledTime` (number): minute of day (`0`-`1439`). CLI input uses 24-hour `HH:MM` format.
 - `duration` (number): one of `15`, `30`, `60`.
 - `completedAt` (string): ISO-8601 timestamp set when the todo is completed.
 - `deletedAt` (string): ISO-8601 timestamp set when the todo is soft-deleted.

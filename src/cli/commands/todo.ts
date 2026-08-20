@@ -12,7 +12,7 @@ const attributeFlags = {
     kind: "parsed",
     parse: String,
     optional: true,
-    brief: "Scheduled time (minute of day).",
+    brief: "Scheduled time (HH:MM).",
   },
   duration: {
     kind: "parsed",

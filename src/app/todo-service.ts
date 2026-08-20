@@ -1,5 +1,5 @@
 import type { Todo } from "../domain/model";
-import { parseDateString, parseMinuteOfDay, parseTodoDuration } from "../domain/validation";
+import { parseClockTime, parseDateString, parseTodoDuration } from "../domain/validation";
 import type { TodoFilter, TodoRepository } from "../storage/repository";
 import { type Clock, systemClock } from "./clock";
 import { asValidationError, requireName, resolveByIdentifier } from "./service-support";
@@ -39,7 +39,7 @@ type OptionalTodoFields = Pick<Todo, "categoryId" | "emoji" | "scheduledTime" | 
 
 function applyOptionalFields(target: Partial<OptionalTodoFields>, input: EditTodoInput): void {
   if (input.scheduledTime !== undefined) {
-    target.scheduledTime = asValidationError(() => parseMinuteOfDay(input.scheduledTime as string));
+    target.scheduledTime = asValidationError(() => parseClockTime(input.scheduledTime as string));
   }
   if (input.duration !== undefined) {
     target.duration = asValidationError(() => parseTodoDuration(input.duration as string));
