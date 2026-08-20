@@ -75,6 +75,35 @@ function withFollowUp(todo: Todo, followUp: boolean): Todo {
   return followUp ? { ...rest, followUp: true } : rest;
 }
 
+async function resolveRolloverCandidates(
+  ids: readonly string[] | undefined,
+  today: string,
+  resolve: (idOrPrefix: string) => Promise<Todo>,
+  listTodos: () => Promise<Todo[]>,
+): Promise<Todo[]> {
+  const unfinishedPast = (todo: Todo) =>
+    todo.status !== "done" && todo.deletedAt === undefined && todo.date < today;
+
+  if (ids === undefined || ids.length === 0) {
+    return (await listTodos()).filter(unfinishedPast);
+  }
+
+  const candidates: Todo[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const todo = await resolve(id);
+    if (!unfinishedPast(todo)) {
+      throw new ValidationError(`Todo ${todo.id} is not an unfinished item dated before ${today}`);
+    }
+    if (seen.has(todo.id)) {
+      throw new ValidationError(`Todo ${todo.id} was specified more than once`);
+    }
+    seen.add(todo.id);
+    candidates.push(todo);
+  }
+  return candidates;
+}
+
 export function createTodoService(repo: TodoRepository, clock: Clock = systemClock): TodoService {
   async function nextOrder(date: string): Promise<number> {
     const existing = await repo.listTodos({ date, includeDeleted: true });
@@ -168,24 +197,9 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
     async rollover(ids) {
       const timestamp = clock();
       const today = localDateOf(timestamp);
-      const unfinishedPast = (todo: Todo) =>
-        todo.status !== "done" && todo.deletedAt === undefined && todo.date < today;
-
-      let candidates: Todo[];
-      if (ids !== undefined && ids.length > 0) {
-        candidates = [];
-        for (const id of ids) {
-          const todo = await resolve(id);
-          if (!unfinishedPast(todo)) {
-            throw new ValidationError(
-              `Todo ${todo.id} is not an unfinished item dated before ${today}`,
-            );
-          }
-          candidates.push(todo);
-        }
-      } else {
-        candidates = (await repo.listTodos()).filter(unfinishedPast);
-      }
+      const candidates = await resolveRolloverCandidates(ids, today, resolve, () =>
+        repo.listTodos(),
+      );
 
       if (candidates.length === 0) {
         return { date: today, count: 0, todos: [] };

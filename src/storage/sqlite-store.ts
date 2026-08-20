@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Category, CategoryId, RolloverEntry, Todo, TodoId } from "../domain/model";
+import { parseDateString } from "../domain/validation";
 import { resolveTodoDataPath } from "./data-path";
 import {
   type DeleteCategoryOptions,
@@ -72,15 +73,21 @@ const CATEGORY_UPSERT = `INSERT OR REPLACE INTO categories (
 function isRolloverEntry(value: unknown): value is RolloverEntry {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
-  return (
-    typeof entry.fromDate === "string" &&
-    typeof entry.toDate === "string" &&
-    typeof entry.rolledOverAt === "string" &&
-    entry.fromDate < entry.toDate &&
-    entry.fromDate.length > 0 &&
-    entry.toDate.length > 0 &&
-    entry.rolledOverAt.length > 0
-  );
+  if (
+    typeof entry.fromDate !== "string" ||
+    typeof entry.toDate !== "string" ||
+    typeof entry.rolledOverAt !== "string" ||
+    entry.rolledOverAt.length === 0
+  ) {
+    return false;
+  }
+  try {
+    const fromDate = parseDateString(entry.fromDate);
+    const toDate = parseDateString(entry.toDate);
+    return fromDate < toDate;
+  } catch {
+    return false;
+  }
 }
 
 function parseStoredHistory(raw: string | null): RolloverEntry[] | undefined {

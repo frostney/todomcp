@@ -609,6 +609,24 @@ CREATE TABLE todos (
     expect((await loaded.getTodo("raw-history"))?.rolloverHistory).toBeUndefined();
   });
 
+  test("drops stored rollover history with invalid date strings", async () => {
+    const path = await tempPath("invalid-dates.sqlite");
+    const fileRepo = track(createSqliteRepository({ path }));
+    await fileRepo.putTodo(todo({ id: "bad-dates" }));
+    fileRepo.close();
+    openRepos.pop();
+
+    const db = new Database(path);
+    db.run("UPDATE todos SET rollover_history = ? WHERE id = ?", [
+      JSON.stringify([{ fromDate: "a", toDate: "z", rolledOverAt: "2026-06-20T09:00:00.000Z" }]),
+      "bad-dates",
+    ]);
+    db.close();
+
+    const loaded = track(createSqliteRepository({ path }));
+    expect((await loaded.getTodo("bad-dates"))?.rolloverHistory).toBeUndefined();
+  });
+
   test("putTodos writes multiple rows", async () => {
     const repo = makeRepo();
     await repo.putTodos([

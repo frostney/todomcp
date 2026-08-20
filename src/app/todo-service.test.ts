@@ -384,4 +384,15 @@ describe("rollover", () => {
 
     await expect(service.rollover(["today-open"])).rejects.toBeInstanceOf(ValidationError);
   });
+
+  test("rejects a duplicate specified identifier", async () => {
+    const { service, repo } = makeService();
+    await seedTodo(repo, { id: "yesterday-open", date: "2026-06-23", status: "open", order: 0 });
+
+    await expect(service.rollover(["yesterday-open", "yesterday-open"])).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect((await service.get("yesterday-open")).date).toBe("2026-06-23");
+    expect((await service.get("yesterday-open")).rolloverCount).toBeUndefined();
+  });
 });
