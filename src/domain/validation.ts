@@ -1,9 +1,29 @@
-import type { DateString, MinuteOfDay, TodoDuration } from "./model";
+import type {
+  DateString,
+  KindAgendaPlacement,
+  KindDatePolicy,
+  KindRolloverPolicy,
+  MinuteOfDay,
+  TodoDuration,
+} from "./model";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CLOCK_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const MINUTES_PER_DAY = 1_440;
 const VALID_DURATIONS: readonly TodoDuration[] = [15, 30, 60];
+
+export const KIND_DATE_POLICIES: readonly KindDatePolicy[] = ["required", "optional", "none"];
+export const KIND_ROLLOVER_POLICIES: readonly KindRolloverPolicy[] = ["on", "off"];
+export const KIND_AGENDA_PLACEMENTS: readonly KindAgendaPlacement[] = [
+  "day-grid",
+  "undated-strip",
+  "hidden",
+];
+
+export const DEFAULT_KIND_NAME = "Todo";
+export const DEFAULT_KIND_DATE_POLICY: KindDatePolicy = "required";
+export const DEFAULT_KIND_ROLLOVER: KindRolloverPolicy = "on";
+export const DEFAULT_KIND_AGENDA_PLACEMENT: KindAgendaPlacement = "day-grid";
 
 export function parseDateString(value: string): DateString {
   if (!DATE_PATTERN.test(value)) {
@@ -48,4 +68,27 @@ export function parseTodoDuration(value: string): TodoDuration {
   }
 
   return parsed as TodoDuration;
+}
+
+export function parseKindDatePolicy(value: string): KindDatePolicy {
+  if (!KIND_DATE_POLICIES.includes(value as KindDatePolicy)) {
+    throw new Error(`Date policy must be one of ${KIND_DATE_POLICIES.join(", ")}, got: ${value}`);
+  }
+  return value as KindDatePolicy;
+}
+
+export function parseKindRollover(value: string): KindRolloverPolicy {
+  if (!KIND_ROLLOVER_POLICIES.includes(value as KindRolloverPolicy)) {
+    throw new Error(`Rollover must be one of ${KIND_ROLLOVER_POLICIES.join(", ")}, got: ${value}`);
+  }
+  return value as KindRolloverPolicy;
+}
+
+export function parseKindAgendaPlacement(value: string): KindAgendaPlacement {
+  if (!KIND_AGENDA_PLACEMENTS.includes(value as KindAgendaPlacement)) {
+    throw new Error(
+      `Agenda placement must be one of ${KIND_AGENDA_PLACEMENTS.join(", ")}, got: ${value}`,
+    );
+  }
+  return value as KindAgendaPlacement;
 }

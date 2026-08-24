@@ -1,6 +1,7 @@
 import { buildRouteMap } from "@stricli/core";
 import { categoryRoute } from "./commands/category";
 import { exportCommand, importCommand } from "./commands/data";
+import { kindRoute } from "./commands/kind";
 import {
   add,
   deleteCommand,
@@ -28,6 +29,7 @@ export const rootRoute = buildRouteMap<string, AppContext>({
     workstream,
     rollover,
     category: categoryRoute,
+    kind: kindRoute,
     export: exportCommand,
     import: importCommand,
   },

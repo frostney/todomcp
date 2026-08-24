@@ -21,6 +21,7 @@ const attributeFlags = {
     brief: "Duration (15, 30, or 60).",
   },
   category: { kind: "parsed", parse: String, optional: true, brief: "Category name or id." },
+  kind: { kind: "parsed", parse: String, optional: true, brief: "Kind name or id." },
   emoji: { kind: "parsed", parse: String, optional: true, brief: "Emoji." },
 } as const;
 
@@ -36,13 +37,14 @@ function formatTime(scheduledTime: number | undefined): string {
 function displayRow(todo: Todo): Record<string, unknown> {
   return {
     id: todo.id.slice(0, 8),
-    date: todo.date,
+    date: todo.date ?? "-",
     time: formatTime(todo.scheduledTime),
     dur: todo.duration ?? "-",
     status: todo.status,
     by: todo.causedBy?.slice(0, 8) ?? "-",
     rolls: todo.rolloverCount ?? "-",
     category: todo.categoryId?.slice(0, 8) ?? "-",
+    kind: todo.kindId?.slice(0, 8) ?? "-",
     emoji: todo.emoji ?? "-",
     name: todo.name,
   };
@@ -73,6 +75,7 @@ type AddFlags = CommonFlags & {
   time?: string;
   duration?: string;
   category?: string;
+  kind?: string;
   emoji?: string;
 };
 
@@ -95,9 +98,10 @@ export const add = buildCommand<AddFlags, [string], AppContext>({
     if (flags.time !== undefined) input.scheduledTime = flags.time;
     if (flags.duration !== undefined) input.duration = flags.duration;
     if (flags.emoji !== undefined) input.emoji = flags.emoji;
-    const todo = await withServices(this, flags.data, async ({ todos, categories }) => {
+    const todo = await withServices(this, flags.data, async ({ todos, categories, kinds }) => {
       if (flags.category !== undefined)
         input.categoryId = await categories.resolveId(flags.category);
+      if (flags.kind !== undefined) input.kindId = await kinds.resolveId(flags.kind);
       return todos.add(input);
     });
     this.process.stdout.write(renderTodo(todo, flags.json));
@@ -109,6 +113,7 @@ type ListFlags = CommonFlags & {
   from?: string;
   to?: string;
   category?: string;
+  kind?: string;
   status?: "open" | "done";
   scheduled?: boolean;
   unscheduled?: boolean;
@@ -147,6 +152,12 @@ export const list = buildCommand<ListFlags, [], AppContext>({
         optional: true,
         brief: "Filter by category name or id.",
       },
+      kind: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Filter by kind name or id.",
+      },
       status: {
         kind: "enum",
         values: ["open", "done"],
@@ -166,9 +177,10 @@ export const list = buildCommand<ListFlags, [], AppContext>({
   },
   async func(flags) {
     const filter = todoListFilter(flags);
-    const todos = await withServices(this, flags.data, async ({ todos, categories }) => {
+    const todos = await withServices(this, flags.data, async ({ todos, categories, kinds }) => {
       if (flags.category !== undefined)
         filter.categoryId = await categories.resolveId(flags.category);
+      if (flags.kind !== undefined) filter.kindId = await kinds.resolveId(flags.kind);
       if (flags.causedBy !== undefined) filter.causedBy = (await todos.get(flags.causedBy)).id;
       return todos.list(filter);
     });
@@ -213,6 +225,7 @@ type EditFlags = CommonFlags & {
   time?: string;
   duration?: string;
   category?: string;
+  kind?: string;
   emoji?: string;
 };
 
@@ -232,9 +245,10 @@ export const edit = buildCommand<EditFlags, [string], AppContext>({
     if (flags.time !== undefined) changes.scheduledTime = flags.time;
     if (flags.duration !== undefined) changes.duration = flags.duration;
     if (flags.emoji !== undefined) changes.emoji = flags.emoji;
-    const todo = await withServices(this, flags.data, async ({ todos, categories }) => {
+    const todo = await withServices(this, flags.data, async ({ todos, categories, kinds }) => {
       if (flags.category !== undefined)
         changes.categoryId = await categories.resolveId(flags.category);
+      if (flags.kind !== undefined) changes.kindId = await kinds.resolveId(flags.kind);
       return todos.edit(id, changes);
     });
     this.process.stdout.write(renderTodo(todo, flags.json));

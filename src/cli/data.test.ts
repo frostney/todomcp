@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Category, Todo } from "../domain/model";
+import type { Category, Kind, Todo } from "../domain/model";
 import { SCHEMA_VERSION, type StoreSnapshot } from "../storage/repository";
 import { type CliResult, makeRunCli, NOW } from "./cli-test-harness";
 
@@ -12,10 +12,11 @@ type ExportSnapshot = {
   version: number;
   todos: Todo[];
   categories: Category[];
+  kinds: Kind[];
 };
 
 type ImportResult = {
-  imported: { todos: number; categories: number };
+  imported: { todos: number; categories: number; kinds: number };
 };
 
 let workDir: string;
@@ -115,7 +116,7 @@ function category(overrides: Partial<Category> = {}): Category {
 
 // `unknown` body lets callers hand deliberately malformed snapshots to writeSnapshot.
 function snapshot(overrides: Record<string, unknown> = {}): unknown {
-  return { version: SCHEMA_VERSION, todos: [], categories: [], ...overrides };
+  return { version: SCHEMA_VERSION, todos: [], categories: [], kinds: [], ...overrides };
 }
 
 let snapshotCounter = 0;
@@ -182,7 +183,7 @@ describe("import", () => {
 
     expect(result.exitCode).toBe(0);
     const parsed = parseJson<ImportResult>(result.stdout);
-    expect(parsed.imported).toEqual({ todos: 1, categories: 1 });
+    expect(parsed.imported).toEqual({ todos: 1, categories: 1, kinds: 0 });
 
     expect((await listTodos()).map((entry) => entry.id)).toEqual(["imported-todo"]);
   });

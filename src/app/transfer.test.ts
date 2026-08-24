@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Category, Todo } from "../domain/model";
+import type { Category, Kind, Todo } from "../domain/model";
 import { SCHEMA_VERSION, type StoreSnapshot, type TodoRepository } from "../storage/repository";
 import { ValidationError } from "./errors";
 import { NOW, registerMemoryRepos } from "./service-test-harness";
@@ -38,7 +38,7 @@ function category(overrides: Partial<Category> = {}): Category {
 
 // `unknown` so we can hand importData deliberately malformed payloads.
 function snapshot(overrides: Partial<StoreSnapshot> = {}): unknown {
-  return { version: SCHEMA_VERSION, todos: [], categories: [], ...overrides };
+  return { version: SCHEMA_VERSION, todos: [], categories: [], kinds: [], ...overrides };
 }
 
 async function seed(repo: TodoRepository): Promise<{ todo: Todo; category: Category }> {
@@ -50,12 +50,18 @@ async function seed(repo: TodoRepository): Promise<{ todo: Todo; category: Categ
 }
 
 // Snapshot of current store contents, used to prove importData did not mutate on failure.
-async function dump(repo: TodoRepository): Promise<{ todos: Todo[]; categories: Category[] }> {
-  return { todos: await repo.listTodos(), categories: await repo.listCategories() };
+async function dump(
+  repo: TodoRepository,
+): Promise<{ todos: Todo[]; categories: Category[]; kinds: Kind[] }> {
+  return {
+    todos: await repo.listTodos(),
+    categories: await repo.listCategories(),
+    kinds: await repo.listKinds(),
+  };
 }
 
 describe("exportData", () => {
-  test("returns the schema version with todos and categories", async () => {
+  test("returns the schema version with todos, categories, and kinds", async () => {
     const repo = makeRepo();
     await repo.putTodo(todo({ id: "todo-1" }));
     await repo.putCategory(category({ id: "cat-1" }));
@@ -65,6 +71,7 @@ describe("exportData", () => {
     expect(result.version).toBe(SCHEMA_VERSION);
     expect(result.todos.map((entry) => entry.id)).toEqual(["todo-1"]);
     expect(result.categories.map((entry) => entry.id)).toEqual(["cat-1"]);
+    expect(result.kinds).toEqual([]);
   });
 
   test("excludes soft-deleted todos", async () => {
@@ -103,7 +110,7 @@ describe("importData", () => {
 
     const counts = await importData(repo, payload);
 
-    expect(counts).toEqual({ todos: 2, categories: 1 });
+    expect(counts).toEqual({ todos: 2, categories: 1, kinds: 0 });
     expect((await repo.listTodos()).map((entry) => entry.id)).toEqual(["imported-1", "imported-2"]);
     expect((await repo.listCategories()).map((entry) => entry.id)).toEqual(["imported-cat"]);
   });
@@ -160,7 +167,11 @@ describe("importData", () => {
       importData(repo, snapshot({ version: SCHEMA_VERSION + 1 })),
     ).rejects.toBeInstanceOf(ValidationError);
 
-    expect(await dump(repo)).toEqual({ todos: [before.todo], categories: [before.category] });
+    expect(await dump(repo)).toEqual({
+      todos: [before.todo],
+      categories: [before.category],
+      kinds: [],
+    });
   });
 
   test("rejects a todo with an invalid date and leaves the store unchanged", async () => {
@@ -171,7 +182,11 @@ describe("importData", () => {
       importData(repo, snapshot({ todos: [todo({ id: "bad", date: "2026-13-40" })] })),
     ).rejects.toBeInstanceOf(ValidationError);
 
-    expect(await dump(repo)).toEqual({ todos: [before.todo], categories: [before.category] });
+    expect(await dump(repo)).toEqual({
+      todos: [before.todo],
+      categories: [before.category],
+      kinds: [],
+    });
   });
 
   test("rejects a todo with an invalid duration", async () => {
@@ -260,7 +275,7 @@ describe("causedBy and rollover transfer", () => {
     expect(loaded).toEqual(todo({ id: "v2-todo" }));
     expect((loaded as { followUp?: boolean } | undefined)?.followUp).toBeUndefined();
     const exported = await exportData(repo);
-    expect(exported.version).toBe(3);
+    expect(exported.version).toBe(SCHEMA_VERSION);
     expect(exported.todos[0]).toEqual(todo({ id: "v2-todo" }));
   });
 
@@ -337,5 +352,62 @@ describe("causedBy and rollover transfer", () => {
         }),
       ),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("kind transfer", () => {
+  const KIND_BASE: Kind = {
+    id: "kind-1",
+    name: "Backlog",
+    datePolicy: "optional",
+    rollover: "off",
+    agendaPlacement: "undated-strip",
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  function kindRecord(overrides: Partial<Kind> = {}): Kind {
+    return { ...KIND_BASE, ...overrides };
+  }
+
+  test("round-trips kinds and kindId on todos", async () => {
+    const repo = makeRepo();
+    const restoredKind = kindRecord();
+    const restoredTodo = todo({ id: "kinded", kindId: restoredKind.id });
+
+    await importData(repo, snapshot({ todos: [restoredTodo], kinds: [restoredKind] }));
+
+    expect(await repo.getKind(restoredKind.id)).toEqual(restoredKind);
+    expect(await repo.getTodo("kinded")).toEqual(restoredTodo);
+    const exported = await exportData(repo);
+    expect(exported.kinds).toEqual([restoredKind]);
+    expect(exported.todos[0]?.kindId).toBe(restoredKind.id);
+  });
+
+  test("rejects a todo referencing a kind absent from the snapshot", async () => {
+    const repo = makeRepo();
+
+    await expect(
+      importData(repo, snapshot({ todos: [todo({ kindId: "ghost" })] })),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("rejects a dated todo when its kind forbids dates", async () => {
+    const repo = makeRepo();
+    const noneKind = kindRecord({ id: "none", name: "Someday", datePolicy: "none" });
+
+    await expect(
+      importData(repo, snapshot({ todos: [todo({ kindId: noneKind.id })], kinds: [noneKind] })),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("accepts an undated todo for an optional kind", async () => {
+    const repo = makeRepo();
+    const optionalKind = kindRecord();
+    const { date: _omitted, ...undated } = todo({ id: "undated", kindId: optionalKind.id });
+
+    await importData(repo, snapshot({ todos: [undated], kinds: [optionalKind] }));
+
+    expect((await repo.getTodo("undated"))?.date).toBeUndefined();
   });
 });

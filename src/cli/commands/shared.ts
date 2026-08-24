@@ -1,4 +1,5 @@
 import { type CategoryService, createCategoryService } from "../../app/category-service";
+import { createKindService, type KindService } from "../../app/kind-service";
 import { createTodoService, type TodoService } from "../../app/todo-service";
 import type { TodoRepository } from "../../storage/repository";
 import type { AppContext } from "../context";
@@ -26,6 +27,7 @@ export type CommonFlags = {
 export type Services = {
   todos: TodoService;
   categories: CategoryService;
+  kinds: KindService;
   repo: TodoRepository;
 };
 
@@ -39,6 +41,7 @@ export async function withServices<T>(
     return await fn({
       todos: createTodoService(repo, ctx.clock),
       categories: createCategoryService(repo, ctx.clock),
+      kinds: createKindService(repo, ctx.clock),
       repo,
     });
   } finally {
