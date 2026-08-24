@@ -597,6 +597,55 @@ describe("kind assignment and date policy", () => {
     expect(edited.date).toBeUndefined();
   });
 
+  test("kind edit that adds a date allocates order in the destination date bucket", async () => {
+    const { service, repo } = makeService();
+    const optionalId = await seedKind(repo, { id: "optional", datePolicy: "optional" });
+    const requiredId = await seedKind(repo, {
+      id: "required",
+      name: "Dated",
+      datePolicy: "required",
+    });
+    const occupant = await service.add(addInput({ date: TODAY }));
+    const created = await service.add(addInput({ kindId: optionalId }));
+    expect(created.date).toBeUndefined();
+    expect(created.order).toBe(0);
+
+    const edited = await service.edit(created.id, { kindId: requiredId });
+
+    expect(edited.date).toBe(TODAY);
+    expect(edited.order).toBe(occupant.order + 1);
+  });
+
+  test("kind edit that clears a date allocates order among undated items", async () => {
+    const { service, repo } = makeService();
+    const requiredId = await seedKind(repo, { id: "required", datePolicy: "required" });
+    const noneId = await seedKind(repo, { id: "none", name: "Someday", datePolicy: "none" });
+    const occupant = await service.add(addInput({ kindId: noneId, name: "Already undated" }));
+    const created = await service.add(addInput({ kindId: requiredId, date: TODAY }));
+
+    const edited = await service.edit(created.id, { kindId: noneId });
+
+    expect(edited.date).toBeUndefined();
+    expect(edited.order).toBe(occupant.order + 1);
+  });
+
+  test("kind edit that stays in the same date bucket keeps order", async () => {
+    const { service, repo } = makeService();
+    const first = await seedKind(repo, { id: "first", datePolicy: "required" });
+    const second = await seedKind(repo, {
+      id: "second",
+      name: "Also dated",
+      datePolicy: "required",
+    });
+    const created = await service.add(addInput({ kindId: first, date: TODAY }));
+    const originalOrder = created.order;
+
+    const edited = await service.edit(created.id, { kindId: second });
+
+    expect(edited.date).toBe(TODAY);
+    expect(edited.order).toBe(originalOrder);
+  });
+
   test("move rejects a date on a none-kind item", async () => {
     const { service, repo } = makeService();
     const kindId = await seedKind(repo, { datePolicy: "none" });

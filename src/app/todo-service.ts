@@ -323,7 +323,11 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
       applyOptionalFields(updated, changes);
       if (changes.kindId !== undefined) {
         const destKind = await loadKind(changes.kindId);
-        updated = applyKindDateOnEdit(updated, destKind, localDateOf(timestamp));
+        const rebucketed = applyKindDateOnEdit(updated, destKind, localDateOf(timestamp));
+        if (rebucketed.date !== updated.date) {
+          rebucketed.order = await nextOrder(rebucketed.date);
+        }
+        updated = rebucketed;
       }
       return persist(updated);
     },
