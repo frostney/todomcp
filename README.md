@@ -52,7 +52,7 @@ todorepl is local-first. The CLI resolves its default data file to the platform 
 - Windows: `%LOCALAPPDATA%\todorepl\todos.db`, or
   `~/AppData/Local/todorepl/todos.db` when `LOCALAPPDATA` is unset
 
-Todos and categories are stored in a local SQLite database with a versioned schema and transactional
+Todos, categories, and kinds are stored in a local SQLite database with a versioned schema and transactional
 writes. Use `--data path` on supported commands to point at a different database file.
 
 ## Command Reference
@@ -66,7 +66,7 @@ todorepl --help
 Add a todo:
 
 ```sh
-todorepl add <name> [--date YYYY-MM-DD] [--category name] [--emoji char] [--data path] [--json]
+todorepl add <name> [--date YYYY-MM-DD] [--category name] [--kind name] [--emoji char] [--data path] [--json]
 ```
 
 List todos:
@@ -76,7 +76,7 @@ todorepl list [--date YYYY-MM-DD] [--status open|done] [--caused-by id] [--categ
 ```
 
 The full command set (`show`, `done`, `edit`, `move`, `delete`, `follow-up`, `workstream`, `rollover`, the
-`category` subcommands, and `export` / `import`) and every flag are documented in
+`category` and `kind` subcommands, and `export` / `import`) and every flag are documented in
 [docs/quick-start.md](docs/quick-start.md).
 
 ## Agent workflows
@@ -111,7 +111,7 @@ todorepl list --status open --json
 ```
 
 Back up the full data set to a file and restore it. `export` writes a deterministic
-`{ version, todos, categories }` snapshot to stdout, and `import` reads one from `--file path` (or
+`{ version, todos, categories, kinds }` snapshot to stdout, and `import` reads one from `--file path` (or
 stdin), validating the whole payload before it touches existing data:
 
 ```sh

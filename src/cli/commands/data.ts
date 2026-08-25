@@ -6,7 +6,7 @@ import { formatJson } from "../output";
 import { type CommonFlags, commonFlags, withServices } from "./shared";
 
 export const exportCommand = buildCommand<CommonFlags, [], AppContext>({
-  docs: { brief: "Export all todos and categories as a JSON snapshot." },
+  docs: { brief: "Export all todos, categories, and kinds as a JSON snapshot." },
   parameters: { flags: commonFlags },
   async func(flags) {
     const snapshot = await withServices(this, flags.data, ({ repo }) => exportData(repo));
@@ -45,7 +45,7 @@ export const importCommand = buildCommand<ImportFlags, [], AppContext>({
       this.process.stdout.write(formatJson({ imported: result }));
     } else {
       this.process.stdout.write(
-        `Imported ${result.todos} todo(s) and ${result.categories} categor${result.categories === 1 ? "y" : "ies"}.\n`,
+        `Imported ${result.todos} todo(s), ${result.categories} categor${result.categories === 1 ? "y" : "ies"}, and ${result.kinds} kind(s).\n`,
       );
     }
   },

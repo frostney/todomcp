@@ -8,6 +8,18 @@ export function requireName(value: string, label: string): string {
   return trimmed;
 }
 
+export function assertUniqueName(
+  records: readonly { id: string; name: string }[],
+  name: string,
+  label: string,
+  excludeId?: string,
+): void {
+  const clash = records.find((record) => record.name === name && record.id !== excludeId);
+  if (clash !== undefined) {
+    throw new ValidationError(`${label} "${name}" already exists`);
+  }
+}
+
 export function asValidationError<T>(run: () => T, label?: string): T {
   try {
     return run();

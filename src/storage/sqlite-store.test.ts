@@ -3,7 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Category, Todo } from "../domain/model";
+import type { Category, Kind, Todo } from "../domain/model";
+import { DEFAULT_KIND_NAME } from "../domain/validation";
 import {
   emptySnapshot,
   SCHEMA_VERSION,
@@ -101,6 +102,7 @@ describe("createSqliteRepository bootstrap", () => {
 
     expect(await repo.listTodos()).toEqual([]);
     expect(await repo.listCategories()).toEqual([]);
+    expect(await repo.listKinds()).toEqual([]);
   });
 
   test("creates missing parent directories for the data file", async () => {
@@ -425,6 +427,7 @@ describe("snapshot import and export", () => {
         category({ id: "work", name: "Work", color: "#0088ff", emoji: "💼" }),
         category({ id: "home", name: "Home" }),
       ],
+      kinds: [],
     };
   }
 
@@ -438,6 +441,7 @@ describe("snapshot import and export", () => {
     expect(exported.version).toBe(SCHEMA_VERSION);
     expect(byId(exported.todos)).toEqual(byId(snapshot.todos));
     expect(byId(exported.categories)).toEqual(byId(snapshot.categories));
+    expect(byId(exported.kinds)).toEqual(byId(snapshot.kinds));
   });
 
   test("exportSnapshot includes soft-deleted todos in deterministic order", async () => {
@@ -456,12 +460,14 @@ describe("snapshot import and export", () => {
       version: SCHEMA_VERSION,
       todos: [todo({ id: "old-todo" })],
       categories: [category({ id: "old-cat" })],
+      kinds: [],
     });
 
     await repo.importSnapshot({
       version: SCHEMA_VERSION,
       todos: [todo({ id: "new-todo" })],
       categories: [category({ id: "new-cat" })],
+      kinds: [],
     });
 
     expect(ids(await repo.listTodos())).toEqual(["new-todo"]);
@@ -476,6 +482,7 @@ describe("snapshot import and export", () => {
 
     expect(await repo.listTodos()).toEqual([]);
     expect(await repo.listCategories()).toEqual([]);
+    expect(await repo.listKinds()).toEqual([]);
   });
 
   test("importSnapshot rejects a newer schema version and preserves existing data", async () => {
@@ -489,6 +496,7 @@ describe("snapshot import and export", () => {
       version: SCHEMA_VERSION + 1,
       todos: [todo({ id: "intruder" })],
       categories: [category({ id: "intruder-cat" })],
+      kinds: [],
     };
 
     await expect(repo.importSnapshot(future)).rejects.toBeInstanceOf(StoreVersionError);
@@ -574,6 +582,11 @@ CREATE TABLE todos (
     expect(loaded?.causedBy).toBeUndefined();
     expect(loaded?.rolloverCount).toBeUndefined();
     expect(loaded?.rolloverHistory).toBeUndefined();
+    expect(loaded?.kindId).toBeTruthy();
+    const migratedKinds = await repo.listKinds();
+    expect(migratedKinds).toHaveLength(1);
+    expect(migratedKinds[0]?.name).toBe(DEFAULT_KIND_NAME);
+    expect(loaded?.kindId).toBe(migratedKinds[0]?.id);
 
     const versioned = todo({
       id: "legacy",
@@ -706,5 +719,103 @@ CREATE TABLE todos (
 
     expect(ids(await repo.listTodos())).toEqual(["batch-a", "batch-b"]);
     expect((await repo.getTodo("batch-b"))?.causedBy).toBe("batch-a");
+  });
+});
+
+const KIND_BASE: Kind = {
+  id: "kind-base",
+  name: "Base kind",
+  datePolicy: "required",
+  rollover: "on",
+  agendaPlacement: "day-grid",
+  createdAt: "2026-06-24T10:00:00.000Z",
+  updatedAt: "2026-06-24T10:00:00.000Z",
+};
+
+function kind(overrides: Partial<Kind> = {}): Kind {
+  return { ...KIND_BASE, ...overrides };
+}
+
+describe("kind persistence", () => {
+  test("putKind then getKind round-trips policies, color, and emoji", async () => {
+    const repo = makeRepo();
+    const full = kind({
+      id: "kind-maybe",
+      name: "Maybe",
+      datePolicy: "optional",
+      rollover: "off",
+      agendaPlacement: "undated-strip",
+      color: "#8899aa",
+      emoji: "📥",
+    });
+
+    await repo.putKind(full);
+
+    expect(await repo.getKind("kind-maybe")).toEqual(full);
+  });
+
+  test("round-trips an undated todo with a kindId", async () => {
+    const repo = makeRepo();
+    const parked = kind({ id: "parked", datePolicy: "none", agendaPlacement: "hidden" });
+    const undated = todo({ id: "undated", kindId: parked.id });
+    const { date: _omitted, ...withoutDate } = undated;
+    await repo.putKind(parked);
+    await repo.putTodo(withoutDate);
+
+    const loaded = await repo.getTodo("undated");
+    expect(loaded?.date).toBeUndefined();
+    expect(loaded?.kindId).toBe(parked.id);
+  });
+});
+
+describe("schema v3 to v4 kinds migration", () => {
+  test("creates a default kind and assigns it to existing todos", async () => {
+    const path = await tempPath("legacy-v3.sqlite");
+    const raw = new Database(path);
+    raw.run(`
+CREATE TABLE categories (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, emoji TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE todos (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
+  "order" INTEGER NOT NULL, category_id TEXT, emoji TEXT, scheduled_time INTEGER,
+  duration INTEGER, completed_at TEXT, deleted_at TEXT, caused_by TEXT,
+  rollover_count INTEGER NOT NULL DEFAULT 0,
+  rollover_history TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+`);
+    raw.run("PRAGMA user_version = 3");
+    raw.run(
+      `INSERT INTO todos (id, name, date, status, "order", caused_by, created_at, updated_at)
+       VALUES ('legacy', 'Legacy item', '2026-06-23', 'open', 0, 'parent',
+               '2026-06-23T10:00:00.000Z', '2026-06-23T10:00:00.000Z')`,
+    );
+    raw.close();
+
+    const repo = track(createSqliteRepository({ path }));
+    const loaded = await repo.getTodo("legacy");
+    const kinds = await repo.listKinds();
+    expect(kinds).toHaveLength(1);
+    expect(kinds[0]?.name).toBe(DEFAULT_KIND_NAME);
+    expect(kinds[0]?.datePolicy).toBe("required");
+    expect(kinds[0]?.rollover).toBe("on");
+    expect(kinds[0]?.agendaPlacement).toBe("day-grid");
+    expect(loaded).toMatchObject({
+      id: "legacy",
+      name: "Legacy item",
+      date: "2026-06-23",
+      causedBy: "parent",
+      kindId: kinds[0]?.id,
+    });
+
+    const check = new Database(path);
+    const uv = (check.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+    const dateInfo = (
+      check.query("PRAGMA table_info(todos)").all() as Array<{ name: string; notnull: number }>
+    ).find((column) => column.name === "date");
+    check.close();
+    expect(uv).toBe(SCHEMA_VERSION);
+    expect(dateInfo?.notnull).toBe(0);
   });
 });

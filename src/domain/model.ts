@@ -8,7 +8,15 @@ export type TodoId = string;
 
 export type CategoryId = string;
 
+export type KindId = string;
+
 export type MinuteOfDay = number;
+
+export type KindDatePolicy = "required" | "optional" | "none";
+
+export type KindRolloverPolicy = "on" | "off";
+
+export type KindAgendaPlacement = "day-grid" | "undated-strip" | "hidden";
 
 export type RolloverEntry = {
   fromDate: DateString;
@@ -19,12 +27,13 @@ export type RolloverEntry = {
 export type Todo = {
   id: TodoId;
   name: string;
-  date: DateString;
   status: TodoStatus;
   order: number;
   createdAt: string;
   updatedAt: string;
+  date?: DateString;
   categoryId?: CategoryId;
+  kindId?: KindId;
   emoji?: string;
   scheduledTime?: MinuteOfDay;
   duration?: TodoDuration;
@@ -38,6 +47,18 @@ export type Todo = {
 export type Category = {
   id: CategoryId;
   name: string;
+  createdAt: string;
+  updatedAt: string;
+  color?: string;
+  emoji?: string;
+};
+
+export type Kind = {
+  id: KindId;
+  name: string;
+  datePolicy: KindDatePolicy;
+  rollover: KindRolloverPolicy;
+  agendaPlacement: KindAgendaPlacement;
   createdAt: string;
   updatedAt: string;
   color?: string;

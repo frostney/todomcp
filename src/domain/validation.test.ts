@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { Category, Todo } from "./model";
-import { parseClockTime, parseDateString, parseMinuteOfDay, parseTodoDuration } from "./validation";
+import type { Category, Kind, Todo } from "./model";
+import {
+  parseClockTime,
+  parseDateString,
+  parseKindAgendaPlacement,
+  parseKindDatePolicy,
+  parseKindRollover,
+  parseMinuteOfDay,
+  parseTodoDuration,
+} from "./validation";
 
 describe("parseDateString", () => {
   test("accepts a valid calendar date", () => {
@@ -80,5 +88,31 @@ describe("domain model", () => {
     } satisfies Todo;
 
     expect(todo.categoryId).toBe(category.id);
+
+    const kind = {
+      id: "kind-backlog",
+      name: "Backlog",
+      datePolicy: "optional",
+      rollover: "off",
+      agendaPlacement: "undated-strip",
+      createdAt: "2026-06-24T10:00:00.000Z",
+      updatedAt: "2026-06-24T10:00:00.000Z",
+    } satisfies Kind;
+
+    expect(kind.datePolicy).toBe("optional");
+  });
+});
+
+describe("kind policy parsers", () => {
+  test("accepts the supported date, rollover, and agenda values", () => {
+    expect(parseKindDatePolicy("optional")).toBe("optional");
+    expect(parseKindRollover("off")).toBe("off");
+    expect(parseKindAgendaPlacement("undated-strip")).toBe("undated-strip");
+  });
+
+  test("rejects unknown policy values", () => {
+    expect(() => parseKindDatePolicy("sometimes")).toThrow("Date policy must be one of");
+    expect(() => parseKindRollover("maybe")).toThrow("Rollover must be one of");
+    expect(() => parseKindAgendaPlacement("sidebar")).toThrow("Agenda placement must be one of");
   });
 });

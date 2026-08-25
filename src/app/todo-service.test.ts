@@ -503,3 +503,223 @@ describe("rollover", () => {
     expect((await service.get("yesterday-open")).rolloverCount).toBeUndefined();
   });
 });
+
+describe("kind assignment and date policy", () => {
+  async function seedKind(
+    repo: TodoRepository,
+    overrides: Partial<{
+      id: string;
+      name: string;
+      datePolicy: "required" | "optional" | "none";
+      rollover: "on" | "off";
+      agendaPlacement: "day-grid" | "undated-strip" | "hidden";
+    }> = {},
+  ): Promise<string> {
+    const id = overrides.id ?? "kind-1";
+    await repo.putKind({
+      id,
+      name: overrides.name ?? "Backlog",
+      datePolicy: overrides.datePolicy ?? "required",
+      rollover: overrides.rollover ?? "on",
+      agendaPlacement: overrides.agendaPlacement ?? "day-grid",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    return id;
+  }
+
+  test("stores a provided kindId", async () => {
+    const { service, repo } = makeService();
+    const kindId = await seedKind(repo);
+
+    const todo = await service.add(addInput({ kindId }));
+
+    expect(todo.kindId).toBe(kindId);
+  });
+
+  test("required kind defaults a missing date to today", async () => {
+    const { service, repo } = makeService();
+    const kindId = await seedKind(repo, { datePolicy: "required" });
+
+    const todo = await service.add(addInput({ kindId }));
+
+    expect(todo.date).toBe(TODAY);
+  });
+
+  test("optional kind allows an undated item", async () => {
+    const { service, repo } = makeService();
+    const kindId = await seedKind(repo, { datePolicy: "optional", name: "Maybe" });
+
+    const todo = await service.add(addInput({ kindId }));
+
+    expect(todo.date).toBeUndefined();
+    expect(todo.kindId).toBe(kindId);
+  });
+
+  test("none kind rejects a supplied date and stores undated items", async () => {
+    const { service, repo } = makeService();
+    const kindId = await seedKind(repo, { datePolicy: "none", name: "Someday" });
+
+    await expect(service.add(addInput({ kindId, date: TODAY }))).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+
+    const undated = await service.add(addInput({ kindId }));
+    expect(undated.date).toBeUndefined();
+  });
+
+  test("editing onto a required kind defaults a missing date to today", async () => {
+    const { service, repo } = makeService();
+    const optionalId = await seedKind(repo, { id: "optional", datePolicy: "optional" });
+    const requiredId = await seedKind(repo, {
+      id: "required",
+      name: "Dated",
+      datePolicy: "required",
+    });
+    const created = await service.add(addInput({ kindId: optionalId }));
+    expect(created.date).toBeUndefined();
+
+    const edited = await service.edit(created.id, { kindId: requiredId });
+
+    expect(edited.kindId).toBe(requiredId);
+    expect(edited.date).toBe(TODAY);
+  });
+
+  test("editing onto a none kind clears an existing date", async () => {
+    const { service, repo } = makeService();
+    const requiredId = await seedKind(repo, { id: "required", datePolicy: "required" });
+    const noneId = await seedKind(repo, { id: "none", name: "Someday", datePolicy: "none" });
+    const created = await service.add(addInput({ kindId: requiredId, date: TODAY }));
+
+    const edited = await service.edit(created.id, { kindId: noneId });
+
+    expect(edited.kindId).toBe(noneId);
+    expect(edited.date).toBeUndefined();
+  });
+
+  test("kind edit that adds a date allocates order in the destination date bucket", async () => {
+    const { service, repo } = makeService();
+    const optionalId = await seedKind(repo, { id: "optional", datePolicy: "optional" });
+    const requiredId = await seedKind(repo, {
+      id: "required",
+      name: "Dated",
+      datePolicy: "required",
+    });
+    const occupant = await service.add(addInput({ date: TODAY }));
+    const created = await service.add(addInput({ kindId: optionalId }));
+    expect(created.date).toBeUndefined();
+    expect(created.order).toBe(0);
+
+    const edited = await service.edit(created.id, { kindId: requiredId });
+
+    expect(edited.date).toBe(TODAY);
+    expect(edited.order).toBe(occupant.order + 1);
+  });
+
+  test("kind edit that clears a date allocates order among undated items", async () => {
+    const { service, repo } = makeService();
+    const requiredId = await seedKind(repo, { id: "required", datePolicy: "required" });
+    const noneId = await seedKind(repo, { id: "none", name: "Someday", datePolicy: "none" });
+    const occupant = await service.add(addInput({ kindId: noneId, name: "Already undated" }));
+    const created = await service.add(addInput({ kindId: requiredId, date: TODAY }));
+
+    const edited = await service.edit(created.id, { kindId: noneId });
+
+    expect(edited.date).toBeUndefined();
+    expect(edited.order).toBe(occupant.order + 1);
+  });
+
+  test("kind edit that stays in the same date bucket keeps order", async () => {
+    const { service, repo } = makeService();
+    const first = await seedKind(repo, { id: "first", datePolicy: "required" });
+    const second = await seedKind(repo, {
+      id: "second",
+      name: "Also dated",
+      datePolicy: "required",
+    });
+    const created = await service.add(addInput({ kindId: first, date: TODAY }));
+    const originalOrder = created.order;
+
+    const edited = await service.edit(created.id, { kindId: second });
+
+    expect(edited.date).toBe(TODAY);
+    expect(edited.order).toBe(originalOrder);
+  });
+
+  test("move rejects a date on a none-kind item", async () => {
+    const { service, repo } = makeService();
+    const kindId = await seedKind(repo, { datePolicy: "none" });
+    const created = await service.add(addInput({ kindId }));
+
+    await expect(service.move(created.id, { date: "2026-06-25" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+  });
+});
+
+describe("rollover skips non-rolling kinds", () => {
+  test("bulk rollover leaves rollover-off items on their original date", async () => {
+    const { service, repo } = makeService();
+    await repo.putKind({
+      id: "rolling",
+      name: "Backlog",
+      datePolicy: "required",
+      rollover: "on",
+      agendaPlacement: "day-grid",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await repo.putKind({
+      id: "parked",
+      name: "Maybe",
+      datePolicy: "required",
+      rollover: "off",
+      agendaPlacement: "day-grid",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await seedTodo(repo, {
+      id: "roll-me",
+      date: "2026-06-23",
+      status: "open",
+      kindId: "rolling",
+      order: 0,
+    });
+    await seedTodo(repo, {
+      id: "keep-me",
+      date: "2026-06-22",
+      status: "open",
+      kindId: "parked",
+      order: 0,
+    });
+
+    const result = await service.rollover();
+
+    expect(result.count).toBe(1);
+    expect(result.todos.map((todo) => todo.id)).toEqual(["roll-me"]);
+    expect((await service.get("roll-me")).date).toBe(TODAY);
+    expect((await service.get("keep-me")).date).toBe("2026-06-22");
+  });
+
+  test("explicit rollover of a rollover-off item is rejected", async () => {
+    const { service, repo } = makeService();
+    await repo.putKind({
+      id: "parked",
+      name: "Maybe",
+      datePolicy: "required",
+      rollover: "off",
+      agendaPlacement: "day-grid",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await seedTodo(repo, {
+      id: "parked-item",
+      date: "2026-06-23",
+      status: "open",
+      kindId: "parked",
+    });
+
+    await expect(service.rollover(["parked-item"])).rejects.toBeInstanceOf(ValidationError);
+    expect((await service.get("parked-item")).date).toBe("2026-06-23");
+  });
+});

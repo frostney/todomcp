@@ -1,4 +1,4 @@
-import type { RolloverEntry, Todo, TodoId } from "../domain/model";
+import type { Kind, RolloverEntry, Todo, TodoId } from "../domain/model";
 import { parseClockTime, parseDateString, parseTodoDuration } from "../domain/validation";
 import type { TodoFilter, TodoRepository } from "../storage/repository";
 import { type Clock, systemClock } from "./clock";
@@ -11,6 +11,7 @@ export type AddTodoInput = {
   scheduledTime?: string;
   duration?: string;
   categoryId?: string;
+  kindId?: string;
   emoji?: string;
 };
 
@@ -19,6 +20,7 @@ export type EditTodoInput = {
   scheduledTime?: string;
   duration?: string;
   categoryId?: string;
+  kindId?: string;
   emoji?: string;
 };
 
@@ -51,7 +53,10 @@ export interface TodoService {
   rollover(ids?: readonly string[]): Promise<RolloverResult>;
 }
 
-type OptionalTodoFields = Pick<Todo, "categoryId" | "emoji" | "scheduledTime" | "duration">;
+type OptionalTodoFields = Pick<
+  Todo,
+  "categoryId" | "kindId" | "emoji" | "scheduledTime" | "duration"
+>;
 
 function applyOptionalFields(target: Partial<OptionalTodoFields>, input: EditTodoInput): void {
   if (input.scheduledTime !== undefined) {
@@ -62,6 +67,9 @@ function applyOptionalFields(target: Partial<OptionalTodoFields>, input: EditTod
   }
   if (input.categoryId !== undefined) {
     target.categoryId = input.categoryId;
+  }
+  if (input.kindId !== undefined) {
+    target.kindId = input.kindId;
   }
   if (input.emoji !== undefined) {
     target.emoji = input.emoji;
@@ -128,25 +136,75 @@ function sumDuration(todos: readonly Todo[]): number {
   return todos.reduce((total, todo) => total + (todo.duration ?? 0), 0);
 }
 
+function rejectDateOnNone(kind: Kind | undefined): void {
+  if (kind?.datePolicy === "none") {
+    throw new ValidationError(`Kind "${kind.name}" does not allow a date`);
+  }
+}
+
+function resolveAddDate(
+  inputDate: string | undefined,
+  kind: Kind | undefined,
+  today: string,
+): string | undefined {
+  if (inputDate !== undefined) {
+    rejectDateOnNone(kind);
+    return asValidationError(() => parseDateString(inputDate));
+  }
+  if (kind?.datePolicy === "none" || kind?.datePolicy === "optional") {
+    return undefined;
+  }
+  return today;
+}
+
+function applyKindDateOnEdit(todo: Todo, kind: Kind | undefined, today: string): Todo {
+  if (kind?.datePolicy === "required" && todo.date === undefined) {
+    return { ...todo, date: today };
+  }
+  if (kind?.datePolicy === "none" && todo.date !== undefined) {
+    const { date: _omitted, ...rest } = todo;
+    return rest;
+  }
+  return todo;
+}
+
+function kindAllowsRollover(todo: Todo, kinds: ReadonlyMap<string, Kind>): boolean {
+  if (todo.kindId === undefined) return true;
+  const kind = kinds.get(todo.kindId);
+  return kind === undefined || kind.rollover === "on";
+}
+
+function isUnfinishedPast(todo: Todo, today: string): boolean {
+  return (
+    todo.status !== "done" &&
+    todo.deletedAt === undefined &&
+    todo.date !== undefined &&
+    todo.date < today
+  );
+}
+
 async function resolveRolloverCandidates(
   ids: readonly string[] | undefined,
   today: string,
+  kinds: ReadonlyMap<string, Kind>,
   resolve: (idOrPrefix: string) => Promise<Todo>,
   listTodos: () => Promise<Todo[]>,
 ): Promise<Todo[]> {
-  const unfinishedPast = (todo: Todo) =>
-    todo.status !== "done" && todo.deletedAt === undefined && todo.date < today;
-
   if (ids === undefined || ids.length === 0) {
-    return (await listTodos()).filter(unfinishedPast);
+    return (await listTodos()).filter(
+      (todo) => isUnfinishedPast(todo, today) && kindAllowsRollover(todo, kinds),
+    );
   }
 
   const candidates: Todo[] = [];
   const seen = new Set<string>();
   for (const id of ids) {
     const todo = await resolve(id);
-    if (!unfinishedPast(todo)) {
+    if (!isUnfinishedPast(todo, today)) {
       throw new ValidationError(`Todo ${todo.id} is not an unfinished item dated before ${today}`);
+    }
+    if (!kindAllowsRollover(todo, kinds)) {
+      throw new ValidationError(`Todo ${todo.id} belongs to a kind that does not roll over`);
     }
     if (seen.has(todo.id)) {
       throw new ValidationError(`Todo ${todo.id} was specified more than once`);
@@ -158,8 +216,11 @@ async function resolveRolloverCandidates(
 }
 
 export function createTodoService(repo: TodoRepository, clock: Clock = systemClock): TodoService {
-  async function nextOrder(date: string): Promise<number> {
-    const existing = await repo.listTodos({ date, includeDeleted: true });
+  async function nextOrder(date: string | undefined): Promise<number> {
+    const existing =
+      date === undefined
+        ? await repo.listTodos({ undated: true, includeDeleted: true })
+        : await repo.listTodos({ date, includeDeleted: true });
     const maxOrder = existing.reduce((max, todo) => Math.max(max, todo.order), -1);
     return maxOrder + 1;
   }
@@ -181,23 +242,35 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
     return todo;
   }
 
+  async function loadKind(kindId: string | undefined): Promise<Kind | undefined> {
+    if (kindId === undefined) return undefined;
+    const kind = await repo.getKind(kindId);
+    if (kind === undefined) {
+      throw new ValidationError(`Kind "${kindId}" does not exist`);
+    }
+    return kind;
+  }
+
+  async function kindsById(): Promise<Map<string, Kind>> {
+    return new Map((await repo.listKinds()).map((kind) => [kind.id, kind]));
+  }
+
   return {
     async add(input) {
       const name = requireName(input.name, "Todo");
-      const date =
-        input.date !== undefined
-          ? asValidationError(() => parseDateString(input.date as string))
-          : localDateOf(clock());
       const timestamp = clock();
+      const today = localDateOf(timestamp);
+      const kind = await loadKind(input.kindId);
+      const date = resolveAddDate(input.date, kind, today);
       const todo: Todo = {
         id: crypto.randomUUID(),
         name,
-        date,
         status: "open",
         order: await nextOrder(date),
         createdAt: timestamp,
         updatedAt: timestamp,
       };
+      if (date !== undefined) todo.date = date;
       applyOptionalFields(todo, input);
       return persist(todo);
     },
@@ -205,18 +278,21 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
     async addFollowUp(parentIdOrPrefix, name) {
       const parent = await resolve(parentIdOrPrefix);
       const timestamp = clock();
-      const date = localDateOf(timestamp);
+      const today = localDateOf(timestamp);
+      const kind = await loadKind(parent.kindId);
+      const date = resolveAddDate(undefined, kind, today);
       const todo: Todo = {
         id: crypto.randomUUID(),
         name: requireName(name, "Todo"),
-        date,
         status: "open",
         order: await nextOrder(date),
         createdAt: timestamp,
         updatedAt: timestamp,
         causedBy: parent.id,
       };
+      if (date !== undefined) todo.date = date;
       if (parent.categoryId !== undefined) todo.categoryId = parent.categoryId;
+      if (parent.kindId !== undefined) todo.kindId = parent.kindId;
       return persist(todo);
     },
 
@@ -239,16 +315,27 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
 
     async edit(idOrPrefix, changes) {
       const existing = await resolve(idOrPrefix);
-      const updated: Todo = { ...existing, updatedAt: clock() };
+      const timestamp = clock();
+      let updated: Todo = { ...existing, updatedAt: timestamp };
       if (changes.name !== undefined) {
         updated.name = requireName(changes.name, "Todo");
       }
       applyOptionalFields(updated, changes);
+      if (changes.kindId !== undefined) {
+        const destKind = await loadKind(changes.kindId);
+        const rebucketed = applyKindDateOnEdit(updated, destKind, localDateOf(timestamp));
+        if (rebucketed.date !== updated.date) {
+          rebucketed.order = await nextOrder(rebucketed.date);
+        }
+        updated = rebucketed;
+      }
       return persist(updated);
     },
 
     async move(idOrPrefix, move) {
       const existing = await resolve(idOrPrefix);
+      const kind = await loadKind(existing.kindId);
+      rejectDateOnNone(kind);
       const date = asValidationError(() => parseDateString(move.date));
       return persist({ ...existing, date, order: await nextOrder(date), updatedAt: clock() });
     },
@@ -270,7 +357,8 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
     async rollover(ids) {
       const timestamp = clock();
       const today = localDateOf(timestamp);
-      const candidates = await resolveRolloverCandidates(ids, today, resolve, () =>
+      const kinds = await kindsById();
+      const candidates = await resolveRolloverCandidates(ids, today, kinds, resolve, () =>
         repo.listTodos(),
       );
 
@@ -280,8 +368,9 @@ export function createTodoService(repo: TodoRepository, clock: Clock = systemClo
 
       let order = await nextOrder(today);
       const rolled: Todo[] = candidates.map((todo) => {
+        const fromDate = todo.date as string;
         const entry: RolloverEntry = {
-          fromDate: todo.date,
+          fromDate,
           toDate: today,
           rolledOverAt: timestamp,
         };

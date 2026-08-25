@@ -1,11 +1,21 @@
-import type { Category, CategoryId, DateString, Todo, TodoId, TodoStatus } from "../domain/model";
+import type {
+  Category,
+  CategoryId,
+  DateString,
+  Kind,
+  KindId,
+  Todo,
+  TodoId,
+  TodoStatus,
+} from "../domain/model";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export type StoreSnapshot = {
   version: number;
   todos: Todo[];
   categories: Category[];
+  kinds: Kind[];
 };
 
 export type TodoFilter = {
@@ -13,10 +23,12 @@ export type TodoFilter = {
   dateFrom?: DateString;
   dateTo?: DateString;
   categoryId?: CategoryId;
+  kindId?: KindId;
   status?: TodoStatus;
   scheduled?: boolean;
   causedBy?: TodoId;
   includeDeleted?: boolean;
+  undated?: boolean;
 };
 
 export type RepositoryOptions = {
@@ -33,6 +45,16 @@ export type DeleteCategoryResult = {
   referencedTodoCount: number;
 };
 
+export type DeleteKindOptions = {
+  force: boolean;
+  updatedAt: string;
+};
+
+export type DeleteKindResult = {
+  deleted: boolean;
+  referencedTodoCount: number;
+};
+
 export interface TodoRepository {
   listTodos(filter?: TodoFilter): Promise<Todo[]>;
   getTodo(id: TodoId): Promise<Todo | undefined>;
@@ -42,13 +64,17 @@ export interface TodoRepository {
   getCategory(id: CategoryId): Promise<Category | undefined>;
   putCategory(category: Category): Promise<void>;
   deleteCategory(id: CategoryId, options: DeleteCategoryOptions): Promise<DeleteCategoryResult>;
+  listKinds(): Promise<Kind[]>;
+  getKind(id: KindId): Promise<Kind | undefined>;
+  putKind(kind: Kind): Promise<void>;
+  deleteKind(id: KindId, options: DeleteKindOptions): Promise<DeleteKindResult>;
   exportSnapshot(): Promise<StoreSnapshot>;
   importSnapshot(snapshot: StoreSnapshot): Promise<void>;
   close(): void;
 }
 
 export function emptySnapshot(): StoreSnapshot {
-  return { version: SCHEMA_VERSION, todos: [], categories: [] };
+  return { version: SCHEMA_VERSION, todos: [], categories: [], kinds: [] };
 }
 
 export class StoreCorruptError extends Error {
