@@ -30,8 +30,8 @@ expectSymlink("CLAUDE.md", "AGENTS.md");
 expectSymlink(".claude/skills", "../.agents/skills");
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
-if (packageJson.packageManager !== "bun@1.3.14") {
-  failures.push("package.json: packageManager must stay bun@1.3.14");
+if (packageJson.packageManager !== "bun@1.4.0") {
+  failures.push("package.json: packageManager must stay bun@1.4.0");
 }
 
 if (packageJson.bin?.todorepl !== "./src/cli/main.ts") {

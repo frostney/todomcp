@@ -41,16 +41,12 @@ describe("parseClockTime", () => {
     expect(parseClockTime("23:59")).toBe(1_439);
   });
 
-  test.each([
-    "9:07",
-    "09:7",
-    "24:00",
-    "23:60",
-    "540",
-    "09:07:00",
-  ])("rejects malformed or out-of-range input: %s", (value) => {
-    expect(() => parseClockTime(value)).toThrow("24-hour HH:MM");
-  });
+  test.each(["9:07", "09:7", "24:00", "23:60", "540", "09:07:00"])(
+    "rejects malformed or out-of-range input: %s",
+    (value) => {
+      expect(() => parseClockTime(value)).toThrow("24-hour HH:MM");
+    },
+  );
 });
 
 describe("parseTodoDuration", () => {
