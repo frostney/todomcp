@@ -1,4 +1,4 @@
-# todorepl docs
+# todomcp docs
 
 - [Architecture](architecture.md)
 - [Quick start](quick-start.md)

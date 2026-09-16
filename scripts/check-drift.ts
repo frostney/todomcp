@@ -34,8 +34,8 @@ if (packageJson.packageManager !== "bun@1.3.14") {
   failures.push("package.json: packageManager must stay bun@1.3.14");
 }
 
-if (packageJson.bin?.todorepl !== "./src/cli/main.ts") {
-  failures.push("package.json: bin.todorepl must point to ./src/cli/main.ts");
+if (packageJson.bin?.todomcp !== "./src/cli/main.ts") {
+  failures.push("package.json: bin.todomcp must point to ./src/cli/main.ts");
 }
 
 const cliEntrypointMode = lstatSync("src/cli/main.ts").mode;

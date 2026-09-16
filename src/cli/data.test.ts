@@ -37,7 +37,7 @@ function runnerFor(dbPath: string): (args: string[]) => Promise<CliResult> {
 }
 
 beforeAll(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "todorepl-data-"));
+  workDir = await mkdtemp(join(tmpdir(), "todomcp-data-"));
   fileDir = await mkdtemp(join(workDir, "files-"));
 });
 

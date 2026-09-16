@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "todorepl",
+      "name": "todomcp",
       "dependencies": {
         "@stricli/core": "^1.2.8",
       },

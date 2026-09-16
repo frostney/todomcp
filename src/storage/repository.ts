@@ -91,7 +91,7 @@ export class StoreVersionError extends Error {
   constructor(path: string, foundVersion: number, supportedVersion: number = SCHEMA_VERSION) {
     super(
       `Todo database at ${path} uses unsupported schema version ${foundVersion}; ` +
-        `this build supports version ${supportedVersion}. Upgrade todorepl or restore a compatible file.`,
+        `this build supports version ${supportedVersion}. Upgrade todomcp or restore a compatible file.`,
     );
     this.name = "StoreVersionError";
   }
