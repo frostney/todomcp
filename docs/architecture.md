@@ -162,7 +162,7 @@ Commands signal outcomes through process exit codes so scripts can branch withou
 - `1`: Other or unexpected error, including an unknown command or bad flags.
 - `2`: Validation or invalid input (also an ambiguous id prefix).
 - `3`: Record not found.
-- `4`: Storage failure (corrupt database or unsupported schema version).
+- `4`: Storage failure (corrupt database, unsupported schema version, or legacy-data migration failure).
 
 ## Drift Check
 

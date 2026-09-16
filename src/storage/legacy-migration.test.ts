@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, linkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { resolveLegacyTodoDataPath, resolveTodoDataPath } from "./data-path";
-import { LegacyDataConflictError, migrateLegacyDataFile } from "./legacy-migration";
+import {
+  LegacyDataConflictError,
+  LegacyMigrationError,
+  migrateLegacyDataFile,
+} from "./legacy-migration";
 import { createSqliteRepository } from "./sqlite-store";
 
 let workDir: string;
@@ -59,6 +63,45 @@ describe("migrateLegacyDataFile", () => {
     expect(await Bun.file(currentPath).text()).toBe("db");
     expect(await Bun.file(`${currentPath}-journal`).text()).toBe("journal");
     expect(existsSync(legacyPath)).toBe(false);
+  });
+
+  test("resumes after linkSync published the database but unlink was interrupted", async () => {
+    const { legacyPath, currentPath } = migrationPaths();
+    await writeFileAt(legacyPath, "db");
+    await mkdir(dirname(currentPath), { recursive: true });
+    linkSync(legacyPath, currentPath);
+
+    migrateLegacyDataFile(legacyPath, currentPath);
+
+    expect(await Bun.file(currentPath).text()).toBe("db");
+    expect(existsSync(legacyPath)).toBe(false);
+  });
+
+  test("resumes after linkSync published a sidecar but unlink was interrupted", async () => {
+    const { legacyPath, currentPath } = migrationPaths();
+    await writeFileAt(legacyPath, "db");
+    await writeFileAt(`${legacyPath}-journal`, "journal");
+    await mkdir(dirname(currentPath), { recursive: true });
+    linkSync(`${legacyPath}-journal`, `${currentPath}-journal`);
+
+    migrateLegacyDataFile(legacyPath, currentPath);
+
+    expect(await Bun.file(currentPath).text()).toBe("db");
+    expect(await Bun.file(`${currentPath}-journal`).text()).toBe("journal");
+    expect(existsSync(legacyPath)).toBe(false);
+    expect(existsSync(`${legacyPath}-journal`)).toBe(false);
+  });
+
+  test("classifies a conflicting sidecar destination as LegacyMigrationError", async () => {
+    const { legacyPath, currentPath } = migrationPaths();
+    await writeFileAt(legacyPath, "db");
+    await writeFileAt(`${legacyPath}-journal`, "legacy-journal");
+    await writeFileAt(`${currentPath}-journal`, "current-journal");
+
+    expect(() => migrateLegacyDataFile(legacyPath, currentPath)).toThrow(LegacyMigrationError);
+    expect(await Bun.file(legacyPath).text()).toBe("db");
+    expect(await Bun.file(`${legacyPath}-journal`).text()).toBe("legacy-journal");
+    expect(await Bun.file(`${currentPath}-journal`).text()).toBe("current-journal");
   });
 
   test("moves a legacy database that has no sidecar files", async () => {
