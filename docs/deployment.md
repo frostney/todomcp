@@ -2,14 +2,14 @@
 
 ## Executive Summary
 
-- todorepl is not deployed as a service.
-- Release readiness means the package binary works as `todorepl`.
+- todomcp is not deployed as a service.
+- Release readiness means the package binary works as `todomcp`.
 - GitHub Actions should run the same validation surfaces as local development.
 - Publication should wait until the command surface is implemented beyond the scaffold.
 
 ## Package Readiness
 
-The package exposes the `todorepl` binary from `package.json`. Before publication, verify the binary
+The package exposes the `todomcp` binary from `package.json`. Before publication, verify the binary
 works through a package install or link flow, not only through `bun run`.
 
 The binary currently points at `src/cli/main.ts`, which has a Bun shebang and must remain executable

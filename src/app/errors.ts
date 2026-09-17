@@ -1,3 +1,4 @@
+import { LegacyDataConflictError, LegacyMigrationError } from "../storage/legacy-migration";
 import { StoreCorruptError, StoreVersionError } from "../storage/repository";
 
 export class ValidationError extends Error {
@@ -24,6 +25,13 @@ export class AmbiguousMatchError extends ValidationError {
 export function exitCodeForError(error: unknown): number {
   if (error instanceof ValidationError) return 2;
   if (error instanceof NotFoundError) return 3;
-  if (error instanceof StoreCorruptError || error instanceof StoreVersionError) return 4;
+  if (
+    error instanceof StoreCorruptError ||
+    error instanceof StoreVersionError ||
+    error instanceof LegacyDataConflictError ||
+    error instanceof LegacyMigrationError
+  ) {
+    return 4;
+  }
   return 1;
 }

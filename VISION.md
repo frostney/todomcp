@@ -11,8 +11,8 @@
   state in every project so the user never has to choose a skill to run.
 - Context is recorded as an OKF (Open Knowledge Format) bundle of living concept documents, so the
   reasoning behind todos survives across sessions and harnesses.
-- The project will be renamed to `todomcp` to match this identity; the rename is decided but not yet
-  executed.
+- The project is named `todomcp` to match this identity; existing pre-rename data directories
+  migrate automatically on first default-database access.
 - App surface stays minimal: skills plus small scripts over the substrate. No web, desktop, or
   mobile UI.
 

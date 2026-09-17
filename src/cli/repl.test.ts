@@ -15,7 +15,7 @@ let workDir: string;
 let dbFile: string;
 
 beforeAll(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "todorepl-repl-"));
+  workDir = await mkdtemp(join(tmpdir(), "todomcp-repl-"));
 });
 
 afterAll(async () => {

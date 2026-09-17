@@ -12,7 +12,7 @@ let dbFile: string;
 let runCli: (args: string[]) => Promise<CliResult>;
 
 beforeAll(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "todorepl-category-"));
+  workDir = await mkdtemp(join(tmpdir(), "todomcp-category-"));
 });
 
 afterAll(async () => {

@@ -20,7 +20,7 @@ bun run check
 Useful focused commands:
 
 ```sh
-bun run todorepl -- --help
+bun run todomcp -- --help
 bun test
 bun run lint
 bunx tsc --noEmit

@@ -8,10 +8,16 @@ type DataPathRuntime = {
 };
 
 const dataFileName = "todos.db";
+const appDirectoryName = "todomcp";
+const legacyAppDirectoryName = "todorepl";
 
 export function resolveTodoDataPath(override?: string, runtime = currentRuntime()): string {
   if (override !== undefined) return resolvePath(override, runtime);
-  return joinPath(runtime, defaultDataDirectory(runtime), "todorepl", dataFileName);
+  return joinPath(runtime, defaultDataDirectory(runtime), appDirectoryName, dataFileName);
+}
+
+export function resolveLegacyTodoDataPath(runtime = currentRuntime()): string {
+  return joinPath(runtime, defaultDataDirectory(runtime), legacyAppDirectoryName, dataFileName);
 }
 
 function currentRuntime(): DataPathRuntime {

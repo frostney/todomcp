@@ -26,7 +26,7 @@ export async function processReplInput(
 export async function startRepl(context: AppContext = createAppContext()): Promise<void> {
   const app = createApp();
 
-  output.write("todorepl\n");
+  output.write("todomcp\n");
   output.write('Type "help" for commands or "exit" to leave.\n');
 
   const rl = createInterface({ input, output, prompt: "todo> " });
