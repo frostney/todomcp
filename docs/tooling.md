@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-- Bun 1.4.0 is the runtime and package manager.
+- Bun 1.4.3 is the runtime and package manager.
 - `bun run check` is the full local gate.
 - Biome 2.5, TypeScript 7, Fallow, markdownlint, link checks, duplication checks, and drift checks are wired into validation.
 - Lefthook runs staged-file autofix for TypeScript, JSON, and project-authored Markdown.
@@ -42,7 +42,7 @@ bun install /path/to/todomcp
 
 ## Tool Choices
 
-- Bun 1.4.0 is the runtime and package manager.
+- Bun 1.4.3 is the runtime and package manager.
 - TypeScript 7 is strict and runs with `moduleResolution: "Bundler"`.
 - Stricli powers command routing.
 - Biome 2.5 owns formatting and linting.
@@ -51,7 +51,7 @@ bun install /path/to/todomcp
 
 ## GitHub Actions
 
-CI uses `oven-sh/setup-bun` with Bun 1.4.0, installs with `bun install --frozen-lockfile`, and runs
+CI uses `oven-sh/setup-bun` with Bun 1.4.3, installs with `bun install --frozen-lockfile`, and runs
 `bun run check`. The local check script remains the source of truth for tests, Biome, TypeScript,
 Markdown, link checks, duplication checks, drift checks, and Fallow.
 
