@@ -26,7 +26,13 @@ for (const doc of [
   expectExecutiveSummary(doc);
 }
 
-expectSymlink("CLAUDE.md", "AGENTS.md");
+if (
+  !existsSync("CLAUDE.md") ||
+  !lstatSync("CLAUDE.md").isFile() ||
+  readFileSync("CLAUDE.md", "utf8") !== "@AGENTS.md\n"
+) {
+  failures.push("CLAUDE.md: expected a regular file containing @AGENTS.md and a newline");
+}
 expectSymlink(".claude/skills", "../.agents/skills");
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
