@@ -2,6 +2,8 @@ globs:
   - "*.md"
   - "docs/**/*.md"
 ignores:
+  # Import-only agent file; check:drift validates its exact content.
+  - "CLAUDE.md"
   - ".agents/**"
   - "node_modules/**"
   - ".fallow/**"
